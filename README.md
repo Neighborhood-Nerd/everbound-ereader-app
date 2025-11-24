@@ -1,7 +1,6 @@
 <div align="center">
-
   <h1>Everbound</h1>
-
+  <img src="assets/icon/app_icon.png" alt="Everbound Logo" width="20%" />
   <br>
 
 [Everbound][link-github] is an open-source ebook reader built with Flutter, designed for immersive and deep reading experiences. Built on top of [foliate-js](https://github.com/johnfactotum/foliate-js), it delivers a smooth, native mobile experience on Android and iOS.
@@ -69,7 +68,7 @@
 | 📋        | **Advanced Reading Stats**                 | Track reading time, pages read, and more for detailed insights.                           |
 | 📋        | **In-Library Full-Text Search**            | Search across your entire ebook library to find topics and quotes.                         |
 
-Stay tuned for continuous improvements and updates! Contributions and suggestions are always welcome—let's build the ultimate reading experience together. 😊
+Stay tuned for continuous improvements and updates! Contributions and suggestions are always welcome.
 
 ## Screenshots
 
@@ -212,9 +211,9 @@ The following libraries and frameworks are used in this software:
 
 [badge-donate]: https://img.shields.io/badge/Buy%20Me%20A%20Coffee-support-yellow?logo=buy-me-a-coffee
 
-[link-github]: https://github.com/yourusername/everbound
+[link-github]: https://github.com/Neighborhood-Nerd/everbound-ereader-app
 
-[link-gh-commits]: https://github.com/yourusername/everbound/commits/main
+[link-gh-commits]: https://github.com/Neighborhood-Nerd/everbound-ereader-app/commits/main
 
 [link-koreader]: https://github.com/koreader/koreader
 
