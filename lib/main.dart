@@ -14,6 +14,10 @@ import 'providers/file_source_providers.dart';
 import 'providers/sync_providers.dart';
 import 'providers/reader_providers.dart';
 import 'providers/home_providers.dart';
+import 'providers/logging_providers.dart';
+import 'services/logger_service.dart';
+
+const String _tag = 'Main';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,8 +31,7 @@ void main() {
   // Set up error handling
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
-    print('Flutter Error: ${details.exception}');
-    print('Stack trace: ${details.stack}');
+    logger.error(_tag, 'Flutter Error: ${details.exception}', details.exception, details.stack);
   };
 
   runApp(ProviderScope(child: const MainApp()));
@@ -45,6 +48,10 @@ class MainApp extends ConsumerWidget {
     // Sync strategy is automatically loaded when the provider is first accessed
     // (happens in the constructor of SyncStrategyNotifier)
     ref.read(syncStrategyProvider); // Ensure provider is initialized
+
+    // Initialize logging provider (always starts disabled)
+    // Logging must be manually enabled each session to prevent accidental performance issues
+    ref.read(loggingEnabledProvider);
 
     // Initialize background scanning on app start
     WidgetsBinding.instance.addPostFrameCallback((_) {

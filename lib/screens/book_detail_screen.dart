@@ -8,7 +8,10 @@ import '../models/book_model.dart';
 import '../models/app_theme_model.dart';
 import '../providers/my_books_providers.dart';
 import '../providers/reader_providers.dart';
+import '../services/logger_service.dart';
 import 'reader_screen.dart';
+
+const String _tag = 'BookDetailScreen';
 
 class BookDetailScreen extends ConsumerStatefulWidget {
   final BookModel book;
@@ -419,8 +422,7 @@ class _BookDetailScreenState extends ConsumerState<BookDetailScreen> {
           child: ElevatedButton(
             onPressed: () {
               // Navigate to reader screen
-              // Use book's EPUB file path if available, otherwise use test path
-              final epubPath = book.epubFilePath ?? '';
+              logger.info(_tag, 'Opening book: ${book.title} (ID: ${book.id})');
               Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (context) => ReaderScreen(book: book),

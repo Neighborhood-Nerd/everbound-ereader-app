@@ -4,6 +4,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqlite3/sqlite3.dart';
 import '../models/file_source_model.dart';
 import '../models/sync_server_model.dart';
+import 'logger_service.dart';
+
+const String _tag = 'LocalDatabaseService';
 
 /// Model for imported book stored in local database
 class LocalBook {
@@ -243,7 +246,7 @@ class LocalDatabaseService {
       _databasePath = path.join(dbDir.path, 'imported_books.db');
     } catch (e) {
       // Fallback to temporary directory if path_provider fails
-      print('Error getting application documents directory, using temp: $e');
+      logger.warning(_tag, 'Error getting application documents directory, using temp: $e');
       final tempDir = Directory.systemTemp;
       final dbDir = Directory(path.join(tempDir.path, 'Everbound'));
       if (!await dbDir.exists()) {
@@ -311,7 +314,7 @@ class LocalDatabaseService {
 
         for (final columnName in columnsToAdd) {
           if (!columnNames.contains(columnName)) {
-            print('Adding $columnName column to imported_books table');
+            logger.debug(_tag, 'Adding $columnName column to imported_books table');
             // sync_enabled and last_read_at are INTEGER, all others are TEXT
             final columnType = (columnName == 'sync_enabled' || columnName == 'last_read_at') ? 'INTEGER' : 'TEXT';
             db.execute('ALTER TABLE imported_books ADD COLUMN $columnName $columnType');
@@ -321,7 +324,7 @@ class LocalDatabaseService {
         stmt.dispose();
       }
     } catch (e) {
-      print('Error checking/adding columns: $e');
+      logger.error(_tag, 'Error checking/adding columns', e);
     }
 
     // Create index for faster queries
@@ -389,7 +392,7 @@ class LocalDatabaseService {
 
         for (final columnName in columnsToAdd) {
           if (!columnNames.contains(columnName)) {
-            print('Adding $columnName column to sync_servers table');
+            logger.debug(_tag, 'Adding $columnName column to sync_servers table');
             if (columnName == 'is_active') {
               db.execute('ALTER TABLE sync_servers ADD COLUMN $columnName INTEGER DEFAULT 0');
             } else {
@@ -401,7 +404,7 @@ class LocalDatabaseService {
         stmt.dispose();
       }
     } catch (e) {
-      print('Error checking/adding columns to sync_servers: $e');
+      logger.error(_tag, 'Error checking/adding columns to sync_servers', e);
     }
   }
 
@@ -601,15 +604,14 @@ class LocalDatabaseService {
         if (progressMatches) {
           return 1; // Success
         } else {
-          print('Warning: Progress mismatch. Expected: $progressPercentage, Got: $currentProgress');
+          logger.warning(_tag, 'Progress mismatch. Expected: $progressPercentage, Got: $currentProgress');
         }
       } else {
-        print('Warning: Book with id $bookId not found after update');
+        logger.warning(_tag, 'Book with id $bookId not found after update');
       }
       return 0; // Update may have failed
     } catch (e, stackTrace) {
-      print('Error in updateProgress: $e');
-      print('Stack trace: $stackTrace');
+      logger.error(_tag, 'Error in updateProgress', e, stackTrace);
       return 0;
     }
   }
@@ -626,8 +628,7 @@ class LocalDatabaseService {
       database.execute(sql);
       return 1; // Success
     } catch (e, stackTrace) {
-      print('Error in updateLastReadAt: $e');
-      print('Stack trace: $stackTrace');
+      logger.error(_tag, 'Error in updateLastReadAt', e, stackTrace);
       return 0;
     }
   }
@@ -900,7 +901,7 @@ class LocalDatabaseService {
         stmt.dispose();
       }
     } catch (e) {
-      print('Error setting active sync server: $e');
+      logger.error(_tag, 'Error setting active sync server', e);
       return 0;
     }
   }

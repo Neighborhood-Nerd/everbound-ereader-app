@@ -6,8 +6,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/home_providers.dart';
 import '../models/book_model.dart';
 import '../providers/reader_providers.dart';
+import '../services/logger_service.dart';
 import 'book_detail_screen.dart';
 import 'reader_screen.dart';
+
+const String _tag = 'HomeScreen';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -177,6 +180,7 @@ class HomeScreen extends ConsumerWidget {
       onTap: () {
         // If goToReader is true and book has EPUB file path, go directly to reader
         if (goToReader && book.epubFilePath != null) {
+          logger.info(_tag, 'Opening book: ${book.title} (ID: ${book.id})');
           Navigator.of(context).push(
             MaterialPageRoute(
               builder: (context) =>
@@ -184,6 +188,7 @@ class HomeScreen extends ConsumerWidget {
             ),
           );
         } else {
+          logger.info(_tag, 'Opening book details: ${book.title} (ID: ${book.id})');
           Navigator.of(context).push(MaterialPageRoute(builder: (context) => BookDetailScreen(book: book)));
         }
       },

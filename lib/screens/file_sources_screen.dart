@@ -10,7 +10,10 @@ import '../services/local_database_service.dart';
 import '../services/permissions_service.dart';
 import '../providers/file_source_providers.dart';
 import '../providers/my_books_providers.dart';
+import '../services/logger_service.dart';
 import '../widgets/webdav_browser_widget.dart';
+
+const String _tag = 'FileSourcesScreen';
 
 class FileSourcesScreen extends ConsumerStatefulWidget {
   const FileSourcesScreen({super.key});
@@ -108,6 +111,10 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
         );
 
         final sourceId = dbService.insertFileSource(source);
+        logger.info(
+          'FileSourcesScreen',
+          'Added local source: ${source.name} (ID: $sourceId, path: ${source.localPath})',
+        );
         ref.read(fileSourcesRefreshProvider.notifier).state++;
 
         if (mounted) {
@@ -125,6 +132,7 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
         }
       }
     } catch (e) {
+      logger.error(_tag, 'Error adding local folder', e);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -143,10 +151,22 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
     String password,
   ) async {
     try {
+      logger.verbose(
+        'FileSourcesScreen',
+        'Testing WebDAV connection to: $url (username: $username)',
+      );
       final client = newClient(url, user: username, password: password);
       await client.readDir('').timeout(const Duration(seconds: 10));
+      logger.info(
+        'FileSourcesScreen',
+        'WebDAV connection test successful: $url',
+      );
       return true;
     } catch (e) {
+      logger.warning(
+        'FileSourcesScreen',
+        'WebDAV connection test failed: $url - $e',
+      );
       return false;
     }
   }
@@ -330,6 +350,10 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
         );
 
         final sourceId = dbService.insertFileSource(source);
+        logger.info(
+          'FileSourcesScreen',
+          'Added WebDAV source: ${source.name} (ID: $sourceId, URL: ${source.url}, path: ${source.selectedPath})',
+        );
         ref.read(fileSourcesRefreshProvider.notifier).state++;
 
         if (mounted) {
@@ -346,6 +370,7 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
           _scanSingleSource(sourceId);
         }
       } catch (e) {
+        logger.error(_tag, 'Error adding WebDAV source', e);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(

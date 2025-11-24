@@ -3,6 +3,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/book_model.dart';
 import '../services/local_database_service.dart';
 import '../services/book_import_service.dart';
+import '../services/logger_service.dart';
+
+const String _viewModeTag = 'ViewMode';
+const String _sortByTag = 'SortBy';
+const String _sortOrderTag = 'SortOrder';
 
 // State provider for refreshing books list
 final booksRefreshProvider = StateProvider<int>((ref) => 0);
@@ -170,7 +175,7 @@ class ViewModeNotifier extends StateNotifier<ViewMode> {
         state = ViewMode.values.firstWhere((e) => e.toString() == savedMode, orElse: () => ViewMode.list);
       }
     } catch (e) {
-      print('Error loading view mode: $e');
+      logger.error(_viewModeTag, 'Error loading view mode', e);
     }
   }
 
@@ -180,7 +185,7 @@ class ViewModeNotifier extends StateNotifier<ViewMode> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefsKey, mode.toString());
     } catch (e) {
-      print('Error saving view mode: $e');
+      logger.error(_viewModeTag, 'Error saving view mode', e);
     }
   }
 }
@@ -205,7 +210,7 @@ class SortByNotifier extends StateNotifier<SortBy> {
         state = SortBy.values.firstWhere((e) => e.toString() == savedSort, orElse: () => SortBy.dateRead);
       }
     } catch (e) {
-      print('Error loading sort by: $e');
+      logger.error(_sortByTag, 'Error loading sort by', e);
     }
   }
 
@@ -215,7 +220,7 @@ class SortByNotifier extends StateNotifier<SortBy> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefsKey, sortBy.toString());
     } catch (e) {
-      print('Error saving sort by: $e');
+      logger.error(_sortByTag, 'Error saving sort by', e);
     }
   }
 }
@@ -240,7 +245,7 @@ class SortOrderNotifier extends StateNotifier<SortOrder> {
         state = SortOrder.values.firstWhere((e) => e.toString() == savedOrder, orElse: () => SortOrder.descending);
       }
     } catch (e) {
-      print('Error loading sort order: $e');
+      logger.error(_sortOrderTag, 'Error loading sort order', e);
     }
   }
 
@@ -250,7 +255,7 @@ class SortOrderNotifier extends StateNotifier<SortOrder> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefsKey, order.toString());
     } catch (e) {
-      print('Error saving sort order: $e');
+      logger.error(_sortOrderTag, 'Error saving sort order', e);
     }
   }
 }

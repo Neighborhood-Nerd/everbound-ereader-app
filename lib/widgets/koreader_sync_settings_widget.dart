@@ -7,7 +7,10 @@ import '../providers/my_books_providers.dart';
 import '../services/local_database_service.dart';
 import '../services/sync_manager_service.dart';
 import '../services/koreader_sync_service.dart';
+import '../services/logger_service.dart';
 import '../models/sync_server_model.dart';
+
+const String _tag = 'KoreaderSyncSettings';
 
 class KoreaderSyncSettingsWidget extends ConsumerStatefulWidget {
   final int? bookId;
@@ -129,8 +132,10 @@ class _KoreaderSyncSettingsWidgetState extends ConsumerState<KoreaderSyncSetting
       final syncService = KOSyncService(server: testServer);
       bool connectionSuccessful = false;
       try {
+        logger.info(_tag, 'Testing KOReader sync connection for user: $username');
         connectionSuccessful = await syncService.testConnection();
       } catch (e) {
+        logger.error(_tag, 'KOReader sync connection test failed with exception', e);
         // Close loading dialog on error
         if (mounted) {
           Navigator.of(context).pop();
@@ -145,6 +150,7 @@ class _KoreaderSyncSettingsWidgetState extends ConsumerState<KoreaderSyncSetting
       }
 
       if (!connectionSuccessful) {
+        logger.error(_tag, 'KOReader sync authentication failed - invalid credentials for user: $username');
         // Authentication failed - show error and allow retry
         if (mounted) {
           final retry = await showDialog<bool>(
@@ -162,6 +168,7 @@ class _KoreaderSyncSettingsWidgetState extends ConsumerState<KoreaderSyncSetting
           );
 
           if (retry == true) {
+            logger.info(_tag, 'User chose to retry KOReader sync authentication');
             // Retry by calling this function again with same values
             await _testAndConnect(url, username, password);
           }
@@ -190,14 +197,17 @@ class _KoreaderSyncSettingsWidgetState extends ConsumerState<KoreaderSyncSetting
       }
 
       final serverId = dbService.insertSyncServer(server);
+      logger.info(_tag, 'Added KOReader sync server: ${server.name} (ID: $serverId, URL: ${server.url}, username: ${server.username})');
 
       // Set as active
       if (serverId > 0) {
         dbService.setActiveSyncServer(serverId);
+        logger.info(_tag, 'Set KOReader sync server as active: $serverId');
         // Update sync manager with the new active server
         final insertedServer = dbService.getSyncServerById(serverId);
         if (insertedServer != null) {
           SyncManagerService.instance.setActiveServer(insertedServer);
+          logger.info(_tag, 'Updated SyncManagerService with active server: ${insertedServer.name}');
         }
       }
 

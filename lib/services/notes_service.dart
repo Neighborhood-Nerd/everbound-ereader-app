@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import '../models/note_model.dart';
+import 'logger_service.dart';
+
+const String _tag = 'NotesService';
 
 /// Service for managing notes persistence in JSON files
 class NotesService {
@@ -56,9 +59,9 @@ class NotesService {
       final file = await _getNotesFile(bookId, epubFilePath);
       final jsonData = notes.map((n) => n.toJson()).toList();
       await file.writeAsString(jsonEncode(jsonData));
-      print('Saved ${notes.length} notes for book ${bookId ?? epubFilePath}');
+      logger.info(_tag, 'Saved ${notes.length} notes for book ${bookId ?? epubFilePath}');
     } catch (e) {
-      print('Error saving notes: $e');
+      logger.error(_tag, 'Error saving notes', e);
     }
   }
 
@@ -73,10 +76,10 @@ class NotesService {
       final jsonString = await file.readAsString();
       final jsonData = jsonDecode(jsonString) as List<dynamic>;
       final notes = jsonData.map((json) => NoteModel.fromJson(json as Map<String, dynamic>)).toList();
-      print('Loaded ${notes.length} notes for book ${bookId ?? epubFilePath}');
+      logger.info(_tag, 'Loaded ${notes.length} notes for book ${bookId ?? epubFilePath}');
       return notes;
     } catch (e) {
-      print('Error loading notes: $e');
+      logger.error(_tag, 'Error loading notes', e);
       return [];
     }
   }
@@ -118,7 +121,7 @@ class NotesService {
         await file.delete();
       }
     } catch (e) {
-      print('Error deleting notes file: $e');
+      logger.error(_tag, 'Error deleting notes file', e);
     }
   }
 }

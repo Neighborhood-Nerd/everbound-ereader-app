@@ -3,6 +3,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/sync_server_model.dart';
 import '../services/local_database_service.dart';
 import '../services/sync_manager_service.dart';
+import '../services/logger_service.dart';
+
+const String _tag = 'SyncStrategy';
 
 /// Provider for refreshing sync servers list
 final syncServersRefreshProvider = StateProvider<int>((ref) => 0);
@@ -74,7 +77,7 @@ class SyncStrategyNotifier extends StateNotifier<SyncStrategyState> {
       // Update SyncManagerService with loaded strategy
       SyncManagerService.instance.setStrategy(strategy);
     } catch (e) {
-      print('Error loading sync strategy: $e');
+      logger.error(_tag, 'Error loading sync strategy', e);
       // Keep default value (prompt)
       SyncManagerService.instance.setStrategy(SyncStrategy.prompt);
     }
@@ -88,7 +91,7 @@ class SyncStrategyNotifier extends StateNotifier<SyncStrategyState> {
       // Update SyncManagerService
       SyncManagerService.instance.setStrategy(strategy);
     } catch (e) {
-      print('Error saving sync strategy: $e');
+      logger.error(_tag, 'Error saving sync strategy', e);
     }
   }
 }

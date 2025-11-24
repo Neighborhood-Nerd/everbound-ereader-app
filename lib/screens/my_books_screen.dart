@@ -10,10 +10,13 @@ import '../providers/my_books_providers.dart';
 import '../models/book_model.dart';
 import '../services/book_import_service.dart';
 import '../services/book_import_exceptions.dart';
+import '../services/logger_service.dart';
 import 'book_detail_screen.dart';
 import 'reader_screen.dart';
 import 'file_sources_screen.dart';
 import 'test_epub_viewer.dart';
+
+const String _tag = 'MyBooksScreen';
 
 class MyBooksScreen extends ConsumerStatefulWidget {
   const MyBooksScreen({super.key});
@@ -732,10 +735,12 @@ class _MyBooksScreenState extends ConsumerState<MyBooksScreen> {
       onTap: () {
         // If book has EPUB file path, go directly to reader, otherwise show details
         if (book.epubFilePath != null) {
+          logger.info(_tag, 'Opening book: ${book.title} (ID: ${book.id})');
           Navigator.of(context).push(
             MaterialPageRoute(builder: (context) => ReaderScreen(book: book)),
           );
         } else {
+          logger.info(_tag, 'Opening book details: ${book.title} (ID: ${book.id})');
           Navigator.of(context).push(
             MaterialPageRoute(
               builder: (context) => BookDetailScreen(book: book),

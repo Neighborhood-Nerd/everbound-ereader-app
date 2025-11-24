@@ -8,6 +8,9 @@ import '../models/sync_server_model.dart';
 import '../utils/md5_utils.dart';
 import 'local_database_service.dart';
 import 'book_import_service.dart';
+import 'logger_service.dart';
+
+const String _tag = 'KOSyncService';
 
 /// Response model for KOReader sync progress
 class KoSyncProgress {
@@ -20,7 +23,9 @@ class KoSyncProgress {
   factory KoSyncProgress.fromJson(Map<String, dynamic> json) {
     return KoSyncProgress(
       progress: json['progress'] as String?,
-      percentage: json['percentage'] != null ? (json['percentage'] as num).toDouble() : null,
+      percentage: json['percentage'] != null
+          ? (json['percentage'] as num).toDouble()
+          : null,
       timestamp: json['timestamp'] as int?,
     );
   }
@@ -33,7 +38,8 @@ class KOSyncService {
 
   KOSyncService({
     required this.server,
-    this.checksumMethod = 'binary', // Default to 'binary' to match KOReader's 'Binary' method
+    this.checksumMethod =
+        'binary', // Default to 'binary' to match KOReader's 'Binary' method
   });
 
   /// Get the base URL for the sync server
@@ -62,29 +68,40 @@ class KOSyncService {
       final bytes = utf8.encode(nameWithoutExt);
       final digest = md5.convert(bytes);
       final digestString = digest.toString();
-      print('Computed filename digest for "${book.title}": $digestString (from: $nameWithoutExt)');
+      print(
+        'Computed filename digest for "${book.title}": $digestString (from: $nameWithoutExt)',
+      );
       return digestString;
     }
 
     // For 'binary' or any other method (default), use partial MD5
     // Use stored MD5 if available (computed on import), otherwise compute on-the-fly
-    if (book.partialMd5Checksum != null && book.partialMd5Checksum!.isNotEmpty) {
-      print('Using stored partial MD5 digest for "${book.title}": ${book.partialMd5Checksum}');
+    if (book.partialMd5Checksum != null &&
+        book.partialMd5Checksum!.isNotEmpty) {
+      print(
+        'Using stored partial MD5 digest for "${book.title}": ${book.partialMd5Checksum}',
+      );
       return book.partialMd5Checksum!;
     }
 
     // Fallback to computing on-the-fly if not stored
     try {
       // Resolve path to handle relative paths and iOS container ID changes
-      final resolvedPath = await BookImportService.instance.resolvePath(book.filePath);
+      final resolvedPath = await BookImportService.instance.resolvePath(
+        book.filePath,
+      );
       final file = File(resolvedPath);
       if (file.existsSync()) {
         final digestString = computePartialMD5(resolvedPath);
-        print('Computed partial MD5 digest for "${book.title}": $digestString (file size: ${file.lengthSync()} bytes)');
+        print(
+          'Computed partial MD5 digest for "${book.title}": $digestString (file size: ${file.lengthSync()} bytes)',
+        );
         print('File path: $resolvedPath (original: ${book.filePath})');
         return digestString;
       } else {
-        print('Warning: File not found for binary checksum: $resolvedPath (original: ${book.filePath})');
+        print(
+          'Warning: File not found for binary checksum: $resolvedPath (original: ${book.filePath})',
+        );
         // Fallback to filename method
         final filename = book.originalFileName;
         final normalizedPath = filename.replaceAll('\\', '/');
@@ -110,7 +127,11 @@ class KOSyncService {
   Map<String, String> _getAuthHeaders() {
     // Compute userkey as MD5 of password per KOReader sync protocol
     final userkey = md5.convert(utf8.encode(server.password)).toString();
-    return {'X-Auth-User': server.username, 'X-Auth-Key': userkey, 'Accept': 'application/vnd.koreader.v1+json'};
+    return {
+      'X-Auth-User': server.username,
+      'X-Auth-Key': userkey,
+      'Accept': 'application/vnd.koreader.v1+json',
+    };
   }
 
   /// Test connection and authentication with the sync server
@@ -118,30 +139,61 @@ class KOSyncService {
   /// Throws an exception if there's a connection error
   Future<bool> testConnection() async {
     try {
+      logger.verbose(
+        _tag,
+        'Testing connection to KOReader sync server: $baseUrl (username: ${server.username})',
+      );
       // Test authentication by calling /users/auth endpoint per KOReader sync protocol
       final url = Uri.parse('${baseUrl}users/auth');
-      
-      final response = await http.get(url, headers: _getAuthHeaders()).timeout(const Duration(seconds: 10));
+
+      final response = await http
+          .get(url, headers: _getAuthHeaders())
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
+        logger.info(
+          _tag,
+          'KOReader sync authentication successful for user: ${server.username}',
+        );
         return true; // Authentication successful
       }
 
       if (response.statusCode == 401) {
         // Unauthorized - invalid credentials
+        logger.error(
+          _tag,
+          'KOReader sync authentication failed - invalid credentials (401 Unauthorized) for user: ${server.username}',
+        );
         return false;
       }
 
       // Other error status codes
-      throw Exception('Server returned status ${response.statusCode}: ${response.body}');
+      logger.error(
+        _tag,
+        'KOReader sync authentication failed - server returned status ${response.statusCode}: ${response.body}',
+      );
+      throw Exception(
+        'Server returned status ${response.statusCode}: ${response.body}',
+      );
     } catch (e) {
       if (e is TimeoutException) {
+        logger.error(
+          _tag,
+          'KOReader sync connection timeout: Unable to reach the server at $baseUrl',
+        );
         throw Exception('Connection timeout: Unable to reach the server');
       } else if (e is SocketException) {
+        logger.error(
+          _tag,
+          'KOReader sync connection error: Unable to connect to the server at $baseUrl',
+          e,
+        );
         throw Exception('Connection error: Unable to connect to the server');
       } else if (e is FormatException) {
+        logger.error(_tag, 'KOReader sync invalid server URL: $baseUrl', e);
         throw Exception('Invalid server URL');
       }
+      logger.error(_tag, 'KOReader sync authentication error', e);
       rethrow;
     }
   }
@@ -153,14 +205,18 @@ class KOSyncService {
       // KOReader sync servers use /syncs/progress/:document endpoint
       final url = Uri.parse('${baseUrl}syncs/progress/$digest');
 
-      final response = await http.get(url, headers: _getAuthHeaders()).timeout(const Duration(seconds: 10));
+      final response = await http
+          .get(url, headers: _getAuthHeaders())
+          .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 404) {
         // No progress found on server
 
         // Also compute and show the binary MD5 for verification
         try {
-          final resolvedPath = await BookImportService.instance.resolvePath(book.filePath);
+          final resolvedPath = await BookImportService.instance.resolvePath(
+            book.filePath,
+          );
           final binaryMD5 = computeFileContentMD5(resolvedPath);
           print('Computed binary MD5: $binaryMD5');
         } catch (e) {
@@ -171,12 +227,16 @@ class KOSyncService {
       }
 
       if (response.statusCode != 200) {
-        throw Exception('Failed to fetch progress: ${response.statusCode} ${response.body}');
+        throw Exception(
+          'Failed to fetch progress: ${response.statusCode} ${response.body}',
+        );
       }
 
       final contentType = response.headers['content-type'];
       if (contentType == null || !contentType.contains('application/json')) {
-        throw Exception('Invalid sync server response: Unexpected Content-Type.');
+        throw Exception(
+          'Invalid sync server response: Unexpected Content-Type.',
+        );
       }
 
       final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -194,7 +254,11 @@ class KOSyncService {
   }
 
   /// Update reading progress on sync server
-  Future<void> updateProgress(LocalBook book, String progressStr, double? percentage) async {
+  Future<void> updateProgress(
+    LocalBook book,
+    String progressStr,
+    double? percentage,
+  ) async {
     try {
       final digest = await getDocumentDigest(book);
       // KOReader sync servers use /syncs/progress endpoint for PUT
@@ -202,11 +266,15 @@ class KOSyncService {
 
       // Round percentage to 4 decimal places to match KOReader's format
       // KOReader uses Math.roundPercent which rounds to 4 decimal places
-      final roundedPercentage = percentage != null ? _roundPercent(percentage) : null;
+      final roundedPercentage = percentage != null
+          ? _roundPercent(percentage)
+          : null;
 
       print('Updating progress to: $url');
       print('Using digest: $digest (method: $checksumMethod)');
-      print('Progress: $progressStr, Percentage: $percentage -> Rounded: $roundedPercentage');
+      print(
+        'Progress: $progressStr, Percentage: $percentage -> Rounded: $roundedPercentage',
+      );
 
       // Payload format per KOReader sync protocol: includes 'document' field
       final body = <String, dynamic>{
@@ -222,7 +290,9 @@ class KOSyncService {
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode != 200 && response.statusCode != 201) {
-        throw Exception('Failed to update progress: ${response.statusCode} ${response.body}');
+        throw Exception(
+          'Failed to update progress: ${response.statusCode} ${response.body}',
+        );
       }
     } catch (e) {
       print('Error updating progress to KOReader sync server: $e');

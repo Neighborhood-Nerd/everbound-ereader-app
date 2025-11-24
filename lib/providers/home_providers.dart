@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/logger_service.dart';
 import '../models/book_model.dart';
 import '../models/app_theme_model.dart';
 import 'my_books_providers.dart';
@@ -38,6 +39,8 @@ class VolumeKeySettingState {
   VolumeKeySettingState({required this.enabled});
 }
 
+const String _volumeKeyTag = 'VolumeKeySetting';
+
 class VolumeKeySettingNotifier extends StateNotifier<VolumeKeySettingState> {
   static const String _prefsKey = 'volume_keys_enabled';
 
@@ -51,18 +54,19 @@ class VolumeKeySettingNotifier extends StateNotifier<VolumeKeySettingState> {
       final enabled = prefs.getBool(_prefsKey) ?? true; // Default to true
       state = VolumeKeySettingState(enabled: enabled);
     } catch (e) {
-      print('Error loading volume key setting: $e');
+      logger.error(_volumeKeyTag, 'Error loading volume key setting', e);
       // Keep default value (true)
     }
   }
 
   Future<void> setEnabled(bool enabled) async {
+    logger.info(_volumeKeyTag, 'User changed volume keys setting: ${enabled ? "enabled" : "disabled"}');
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_prefsKey, enabled);
       state = VolumeKeySettingState(enabled: enabled);
     } catch (e) {
-      print('Error saving volume key setting: $e');
+      logger.error(_volumeKeyTag, 'Error saving volume key setting', e);
     }
   }
 
@@ -82,6 +86,8 @@ class KeepScreenAwakeSettingState {
   KeepScreenAwakeSettingState({required this.enabled});
 }
 
+const String _keepScreenAwakeTag = 'KeepScreenAwakeSetting';
+
 class KeepScreenAwakeSettingNotifier extends StateNotifier<KeepScreenAwakeSettingState> {
   static const String _prefsKey = 'keep_screen_awake_enabled';
 
@@ -95,18 +101,19 @@ class KeepScreenAwakeSettingNotifier extends StateNotifier<KeepScreenAwakeSettin
       final enabled = prefs.getBool(_prefsKey) ?? false; // Default to false
       state = KeepScreenAwakeSettingState(enabled: enabled);
     } catch (e) {
-      print('Error loading keep screen awake setting: $e');
+      logger.error(_keepScreenAwakeTag, 'Error loading keep screen awake setting', e);
       // Keep default value (false)
     }
   }
 
   Future<void> setEnabled(bool enabled) async {
+    logger.info(_keepScreenAwakeTag, 'User changed keep screen awake setting: ${enabled ? "enabled" : "disabled"}');
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_prefsKey, enabled);
       state = KeepScreenAwakeSettingState(enabled: enabled);
     } catch (e) {
-      print('Error saving keep screen awake setting: $e');
+      logger.error(_keepScreenAwakeTag, 'Error saving keep screen awake setting', e);
     }
   }
 

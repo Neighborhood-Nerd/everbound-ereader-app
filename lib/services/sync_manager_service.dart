@@ -2,6 +2,9 @@ import 'dart:async';
 import 'local_database_service.dart';
 import 'koreader_sync_service.dart';
 import '../models/sync_server_model.dart';
+import 'logger_service.dart';
+
+const String _tag = 'SyncManagerService';
 
 /// Sync state enum
 enum SyncState { idle, checking, synced, error, conflict }
@@ -146,6 +149,7 @@ class SyncManagerService {
   /// Perform initial sync check when book is opened
   Future<void> performInitialSync(LocalBook book) async {
     if (_activeServer == null || _strategy == SyncStrategy.disabled) {
+      logger.verbose(_tag, 'Initial sync skipped - server: ${_activeServer != null}, strategy: ${_strategy.name}');
       _syncStates[book.id ?? 0] = SyncState.idle;
       return;
     }
@@ -155,15 +159,18 @@ class SyncManagerService {
 
     // Check if sync is disabled for this book
     if (book.syncEnabled == false) {
+      logger.verbose(_tag, 'Initial sync skipped - sync disabled for book ID: $bookId');
       _syncStates[bookId] = SyncState.idle;
       return;
     }
 
     if (_strategy == SyncStrategy.send) {
+      logger.verbose(_tag, 'Initial sync skipped - strategy is send-only for book ID: $bookId');
       _syncStates[bookId] = SyncState.synced;
       return;
     }
 
+    logger.info(_tag, 'Starting initial sync for book ID: $bookId (title: ${book.title}, strategy: ${_strategy.name})');
     _syncStates[bookId] = SyncState.checking;
 
     try {
@@ -179,6 +186,7 @@ class SyncManagerService {
           remote.progress == null ||
           remote.timestamp == null) {
         // No remote progress, mark as synced and push local if needed
+        logger.info(_tag, 'No remote progress found for book ID: $bookId - pushing local progress');
         _syncStates[bookId] = SyncState.synced;
         if (_strategy != SyncStrategy.receive) {
           await _pushProgressInternal(bookId);
@@ -193,6 +201,8 @@ class SyncManagerService {
       final remoteTimestamp =
           remote.timestamp! * 1000; // Convert to milliseconds
       final remoteIsNewer = remoteTimestamp > localTimestamp;
+      
+      logger.verbose(_tag, 'Sync comparison for book ID: $bookId - local: ${localProgress.toStringAsFixed(2)}% (${DateTime.fromMillisecondsSinceEpoch(localTimestamp)}), remote: ${remoteProgress.toStringAsFixed(2)}% (${DateTime.fromMillisecondsSinceEpoch(remoteTimestamp.toInt())}), remote newer: $remoteIsNewer');
 
       // Check if progress is identical (within tolerance)
       // Use relative tolerance: compare difference as percentage of the average progress
@@ -226,10 +236,12 @@ class SyncManagerService {
           (_strategy == SyncStrategy.silent && shouldUseRemote)) {
         // Apply remote progress (will update percentage and clear CFI since remote has XPath, not epubcfi)
         // _applyRemoteProgress will also check for 0% progress as a safety measure
+        logger.info(_tag, 'Applying remote progress for book ID: $bookId (strategy: ${_strategy.name}, shouldUseRemote: $shouldUseRemote)');
         await _applyRemoteProgress(book, remote);
         _syncStates[bookId] = SyncState.synced;
       } else if (_strategy == SyncStrategy.prompt) {
         // Show conflict dialog
+        logger.info(_tag, 'Sync conflict detected for book ID: $bookId - showing prompt dialog');
         _conflictDetails[bookId] = SyncConflictDetails(
           book: book,
           localPreview: _formatProgressPreview(book, localProgress),
@@ -243,10 +255,11 @@ class SyncManagerService {
         _syncStates[bookId] = SyncState.conflict;
       } else {
         // Default: mark as synced (will push local later)
+        logger.verbose(_tag, 'Sync complete for book ID: $bookId - will push local progress later');
         _syncStates[bookId] = SyncState.synced;
       }
     } catch (e) {
-      print('Error during initial sync: $e');
+      logger.error(_tag, 'Error during initial sync', e);
       _syncStates[bookId] = SyncState.error;
     }
   }
@@ -266,6 +279,7 @@ class SyncManagerService {
     if (_activeServer == null ||
         _strategy == SyncStrategy.disabled ||
         _strategy == SyncStrategy.receive) {
+      logger.verbose(_tag, 'Push progress skipped - server: ${_activeServer != null}, strategy: ${_strategy.name}');
       return;
     }
 
@@ -273,18 +287,23 @@ class SyncManagerService {
 
     // Check if sync is disabled for this book
     if (book.syncEnabled == false) {
+      logger.verbose(_tag, 'Push progress skipped - sync disabled for book ID: $bookId');
       return;
     }
 
     // Don't push 0% progress - this would reset the book for other devices
     if (percentage != null && percentage <= 0.0) {
+      logger.verbose(_tag, 'Push progress skipped - percentage is 0% for book ID: $bookId');
       return;
     }
 
     // Skip if same progress was already pushed
     if (_lastPushedProgress[bookId] == progressStr) {
+      logger.verbose(_tag, 'Push progress skipped - same progress already pushed for book ID: $bookId');
       return;
     }
+
+    logger.verbose(_tag, 'Queuing progress push for book ID: $bookId - progress: $progressStr, percentage: ${percentage?.toStringAsFixed(2)}%');
 
     // Store current book data for the push
     _currentPushBook[bookId] = book;
@@ -311,10 +330,12 @@ class SyncManagerService {
     final percentage = _currentPushPercentage[bookId];
 
     if (book == null || progressStr == null || _activeServer == null) {
+      logger.warning(_tag, 'Push progress internal skipped - missing data for book ID: $bookId');
       return;
     }
 
     try {
+      logger.info(_tag, 'Pushing progress to server for book ID: $bookId (title: ${book.title}) - progress: $progressStr, percentage: ${percentage?.toStringAsFixed(2)}%');
       final syncService = KOSyncService(
         server: _activeServer!,
         checksumMethod: _checksumMethod,
@@ -322,8 +343,9 @@ class SyncManagerService {
 
       await syncService.updateProgress(book, progressStr, percentage);
       _lastPushedProgress[bookId] = progressStr;
+      logger.info(_tag, 'Successfully pushed progress for book ID: $bookId');
     } catch (e) {
-      print('Error pushing progress: $e');
+      logger.error(_tag, 'Error pushing progress', e);
       _syncStates[bookId] = SyncState.error;
     }
   }
@@ -340,6 +362,8 @@ class SyncManagerService {
   ) async {
     if (book.id == null) return;
 
+    logger.info(_tag, 'Applying remote progress for book ID: ${book.id} (title: ${book.title}) - remote progress: ${remote.progress}, percentage: ${remote.percentage?.toStringAsFixed(2)}%');
+
     final dbService = LocalDatabaseService.instance;
     await dbService.initialize();
 
@@ -354,6 +378,7 @@ class SyncManagerService {
 
     // Don't apply 0% progress - this would reset the book to the beginning
     if (progressToUse <= 0.0) {
+      logger.warning(_tag, 'Skipping remote progress application - progress is 0% for book ID: ${book.id}');
       return;
     }
 
@@ -368,6 +393,7 @@ class SyncManagerService {
     }
 
     // Update local progress with remote percentage, save XPath, and clear CFI
+    logger.verbose(_tag, 'Updating local book progress - book ID: ${book.id}, progress: ${progressToUse.toStringAsFixed(2)}%, XPath: ${xpathToSave ?? "none"}');
     dbService.updateProgress(
       book.id!,
       progressToUse,
@@ -375,6 +401,7 @@ class SyncManagerService {
       lastReadCfi: null,
       lastReadXPath: xpathToSave,
     );
+    logger.info(_tag, 'Successfully applied remote progress to local book ID: ${book.id}');
   }
 
   /// Format progress preview for local
@@ -394,12 +421,14 @@ class SyncManagerService {
 
   /// Resolve conflict by using local progress
   Future<void> resolveConflictWithLocal(int bookId) async {
+    logger.info(_tag, 'Resolving sync conflict with LOCAL progress for book ID: $bookId');
     final debouncer = _pushProgressDebouncers[bookId];
     if (debouncer != null) {
       debouncer.flush();
     }
     _syncStates[bookId] = SyncState.synced;
     _conflictDetails[bookId] = null;
+    logger.info(_tag, 'Conflict resolved - using local progress for book ID: $bookId');
   }
 
   /// Resolve conflict by using remote progress
@@ -408,9 +437,11 @@ class SyncManagerService {
     LocalBook book,
     KoSyncProgress remote,
   ) async {
+    logger.info(_tag, 'Resolving sync conflict with REMOTE progress for book ID: $bookId (title: ${book.title})');
     await _applyRemoteProgress(book, remote);
     _syncStates[bookId] = SyncState.synced;
     _conflictDetails[bookId] = null;
+    logger.info(_tag, 'Conflict resolved - using remote progress for book ID: $bookId');
   }
 
   /// Cleanup all resources
@@ -429,16 +460,26 @@ class SyncManagerService {
 
   /// Get remote progress for conflict resolution
   Future<KoSyncProgress?> getRemoteProgress(LocalBook book) async {
-    if (_activeServer == null) return null;
+    if (_activeServer == null) {
+      logger.verbose(_tag, 'getRemoteProgress skipped - no active server');
+      return null;
+    }
 
     try {
+      logger.verbose(_tag, 'Getting remote progress for book: ${book.title} (ID: ${book.id})');
       final syncService = KOSyncService(
         server: _activeServer!,
         checksumMethod: _checksumMethod,
       );
-      return await syncService.getProgress(book);
+      final progress = await syncService.getProgress(book);
+      if (progress != null) {
+        logger.info(_tag, 'Retrieved remote progress for book ID: ${book.id} - progress: ${progress.progress}, percentage: ${progress.percentage?.toStringAsFixed(2)}%');
+      } else {
+        logger.verbose(_tag, 'No remote progress found for book ID: ${book.id}');
+      }
+      return progress;
     } catch (e) {
-      print('Error getting remote progress: $e');
+      logger.error(_tag, 'Error getting remote progress', e);
       return null;
     }
   }

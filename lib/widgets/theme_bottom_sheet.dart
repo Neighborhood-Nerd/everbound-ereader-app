@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import '../models/app_theme_model.dart';
 import '../providers/reader_providers.dart';
+import '../services/logger_service.dart';
+
+const String _tag = 'ThemeBottomSheet';
 
 class ThemeBottomSheet extends ConsumerStatefulWidget {
   const ThemeBottomSheet({super.key});
@@ -104,6 +107,8 @@ class _ThemeBottomSheetState extends ConsumerState<ThemeBottomSheet> {
       children: [
         GestureDetector(
           onTap: () async {
+            final newDarkMode = !isDark;
+            logger.info(_tag, 'User toggled dark mode: ${newDarkMode ? "enabled" : "disabled"}');
             await ref.read(readingSettingsProvider.notifier).toggleDarkMode();
           },
           child: Container(
@@ -151,6 +156,7 @@ class _ThemeBottomSheetState extends ConsumerState<ThemeBottomSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 4),
             child: GestureDetector(
               onTap: () async {
+                logger.info(_tag, 'User changed theme to: ${theme.name}');
                 // Set the theme - appThemeProvider will automatically rebuild since it watches readingSettingsProvider
                 await ref.read(readingSettingsProvider.notifier).setSelectedTheme(theme.name);
               },

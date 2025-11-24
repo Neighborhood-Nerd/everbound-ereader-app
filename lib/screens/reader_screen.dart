@@ -17,6 +17,7 @@ import '../providers/sync_providers.dart';
 import '../providers/home_providers.dart';
 import '../services/sync_manager_service.dart';
 import '../services/volume_key_service.dart';
+import '../services/logger_service.dart';
 import '../services/book_import_service.dart';
 import '../services/highlights_service.dart';
 import '../widgets/wiktionary_popup.dart';
@@ -30,6 +31,8 @@ import '../widgets/foliate_webview.dart';
 import '../screens/book_detail_screen.dart';
 import '../models/book_model.dart';
 import 'dart:math';
+
+const String _tag = 'ReaderScreen';
 
 const Color darkIconColor = Color(0xFFc6c6c6);
 const Color lightIconColor = Color(0xFF49454f);
@@ -248,6 +251,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   @override
   void initState() {
     super.initState();
+    logger.info(_tag, 'Initializing reader for book: ${widget.book.title} (ID: ${widget.book.id})');
     _loadSavedProgressAndSync();
     _initializeScreenAwakeLock();
     // Note: Volume key listener setup is now done in build method
@@ -261,10 +265,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       if (keepAwakeSetting.enabled) {
         await WakelockPlus.enable();
         _screenAwakeLockEnabled = true;
-        print('Screen awake lock enabled');
+        logger.info(_tag, 'Screen awake lock enabled');
       }
     } catch (e) {
-      print('Error enabling screen awake lock: $e');
+      logger.error(_tag, 'Error enabling screen awake lock', e);
     }
   }
 
@@ -411,6 +415,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   /// Resolve conflict by using local progress
   Future<void> _resolveConflictWithLocal(int bookId) async {
+    logger.info(_tag, 'User chose to resolve sync conflict with LOCAL progress for book ID: $bookId');
     final syncManager = SyncManagerService.instance;
     await syncManager.resolveConflictWithLocal(bookId);
 
@@ -481,6 +486,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     int bookId,
     SyncConflictDetails conflict,
   ) async {
+    logger.info(_tag, 'User chose to resolve sync conflict with REMOTE progress for book ID: $bookId');
     final syncManager = SyncManagerService.instance;
     final dbService = LocalDatabaseService.instance;
     await dbService.initialize();
@@ -812,11 +818,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     if (!mounted || _volumeKeyListenerSetup) return;
     _volumeKeyListenerSetup = true;
 
-    print('Setting up volume key listener (mounted: $mounted)');
+    logger.debug(_tag, 'Setting up volume key listener (mounted: $mounted)');
 
     // Set up initial listener based on current state
     final volumeKeySetting = ref.read(volumeKeySettingProvider);
-    print('Initial volume key setting: ${volumeKeySetting.enabled}');
+    logger.debug(_tag, 'Initial volume key setting: ${volumeKeySetting.enabled}');
     _lastVolumeKeyEnabled = volumeKeySetting.enabled;
 
     // Initialize volume key service with callbacks
@@ -837,7 +843,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     }
 
     _lastVolumeKeyEnabled = enabled;
-    print('Updating volume key listener: $enabled');
+    logger.debug(_tag, 'Updating volume key listener: $enabled');
 
     // Update volume key service
     _volumeKeyService.setEnabled(enabled);
@@ -1875,10 +1881,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                       onTouchEvent: (touchData) => _handleTouchEvent(touchData),
 
                       onBookLoaded: () {
+                        logger.verbose(_tag, 'Foliate bridge: onBookLoaded event received');
                         _handleEpubLoaded();
                       },
                       onRelocated: (location) {
                         // location is a Map from foliate-js (see view.js #onRelocate)
+                        logger.verbose(_tag, 'Foliate bridge: onRelocated event received - progress: ${location['fraction'] ?? location['progress']}, CFI: ${location['cfi']?.toString().substring(0, (location['cfi']?.toString().length ?? 0).clamp(0, 50))}...');
                         _handleRelocatedFromFoliate(location);
                       },
                       onAnnotationEvent: (detail) {
@@ -1887,13 +1895,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                       onSectionLoaded: (detail) {
                         // When a section loads, add annotations for that section
                         // This ensures annotations are added when the overlay infrastructure is ready
+                        logger.verbose(_tag, 'Foliate bridge: onSectionLoaded event received - section index: ${detail['index']}');
                         _handleSectionLoaded(detail);
                       },
                       onTocReceived: (toc) {
                         // Convert TOC from foliate (uses 'label') to EpubChapter (uses 'title')
+                        logger.verbose(_tag, 'Foliate bridge: onTocReceived event received - ${toc.length} TOC items');
                         _handleTocReceived(toc);
                       },
                       onSelection: (detail) {
+                        logger.verbose(_tag, 'Foliate bridge: onSelection event received - text length: ${detail['text']?.toString().length ?? 0}, CFI: ${detail['cfi']?.toString().substring(0, (detail['cfi']?.toString().length ?? 0).clamp(0, 50))}...');
                         try {
                           final text = detail['text']?.toString() ?? '';
                           final cfi = detail['cfi']?.toString() ?? '';
@@ -2037,6 +2048,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           (detail['progress'] as num?)?.toDouble() ??
           0.0;
       final cfi = detail['cfi']?.toString() ?? '';
+      logger.verbose(_tag, 'Handling relocated event - progress: $progress, CFI: ${cfi.substring(0, cfi.length.clamp(0, 50))}..., XPath: ${detail['startXpath'] ?? detail['xpointer'] ?? 'none'}');
       // XPath can come from:
       // 1. startXpath (converted from CFI in JavaScript bridge)
       // 2. xpointer (converted from CFI in JavaScript bridge)
@@ -2089,52 +2101,45 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       );
 
       _handleRelocated(location);
-    } catch (e) {
+    } catch (e, stackTrace) {
       if (mounted) {
-        print('Error handling foliate relocate detail: $e');
+        logger.error(_tag, 'Error handling foliate relocate detail', e, stackTrace);
       }
     }
   }
 
   /// Handle annotation events from foliate-js (e.g., when a highlight is tapped).
   void _handleAnnotationEventFromFoliate(Map<String, dynamic> detail) {
-    print(
-      '🎯 [ReaderScreen] _handleAnnotationEventFromFoliate called with detail keys: ${detail.keys}',
-    );
-    print('🎯 [ReaderScreen] detail: $detail');
+    logger.debug(_tag, '_handleAnnotationEventFromFoliate called with detail keys: ${detail.keys}');
+    logger.debug(_tag, 'detail: $detail');
     try {
       final value = detail['value']?.toString();
-      print('🎯 [ReaderScreen] extracted value: $value');
+      logger.debug(_tag, 'extracted value: $value');
       if (value == null || value.isEmpty) {
-        print('⚠️ Annotation event: value is null or empty');
+        logger.warning(_tag, 'Annotation event: value is null or empty');
         return;
       }
 
-      print(
-        '🔍 Annotation event received for CFI: ${value.substring(0, value.length.clamp(0, 50))}...',
-      );
-      print('   Current highlights count: ${_currentHighlights?.length ?? 0}');
-      print('   Current notes count: ${_currentNotes.length}');
+      logger.debug(_tag, 'Annotation event received for CFI: ${value.substring(0, value.length.clamp(0, 50))}...');
+      logger.debug(_tag, 'Current highlights count: ${_currentHighlights?.length ?? 0}, notes count: ${_currentNotes.length}');
 
       // Check for both highlight and note - annotations can be either
       final highlight = _getHighlightForCfi(value);
       final note = _getNoteForCfi(value);
       if (note != null) {
-        print('   ✅ Found note for CFI');
+        logger.debug(_tag, 'Found note for CFI');
       } else {
-        print('   ❌ No note found for CFI');
+        logger.debug(_tag, 'No note found for CFI');
       }
 
       if (highlight != null) {
-        print('   ✅ Found highlight for CFI');
+        logger.debug(_tag, 'Found highlight for CFI');
       } else {
-        print('   ❌ No highlight found for CFI');
+        logger.debug(_tag, 'No highlight found for CFI');
       }
 
       if (highlight != null || note != null) {
-        print(
-          '   ✅ Processing annotation click (highlight: ${highlight != null}, note: ${note != null})',
-        );
+        logger.debug(_tag, 'Processing annotation click (highlight: ${highlight != null}, note: ${note != null})');
         // Set the flag early to prevent _handleTouchUp from clearing the selection
         // This must be done synchronously before any async operations
         setState(() {
@@ -2143,17 +2148,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
         final rect = detail['rect'] as Map<String, dynamic>?;
         final containerRect = detail['containerRect'] as Map<String, dynamic>?;
-        print('   Rect: $rect, ContainerRect: $containerRect');
+        logger.debug(_tag, 'Rect: $rect, ContainerRect: $containerRect');
         _handleAnnotationClicked(value, rect, containerRect);
       } else {
-        print(
-          '   ⚠️ No highlight or note found - skipping annotation click handling',
-        );
+        logger.warning(_tag, 'No highlight or note found - skipping annotation click handling');
       }
     } catch (e, stackTrace) {
       if (mounted) {
-        print('❌ Error handling foliate annotation event: $e');
-        print('   Stack trace: $stackTrace');
+        logger.error(_tag, 'Error handling foliate annotation event', e, stackTrace);
       }
     }
   }
@@ -2208,6 +2210,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   void _handleEpubLoaded() {
+    logger.info(_tag, 'EPUB loaded successfully');
     if (mounted) {
       // Set initial theme after EPUB loads
       // Add a delay to ensure renderer is fully initialized
@@ -2781,7 +2784,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   void _handleTocReceived(List<Map<String, dynamic>> toc) {
     if (!mounted) return;
 
-    print('🎯 _handleTocReceived called with ${toc.length} items');
+    logger.verbose(_tag, '_handleTocReceived called with ${toc.length} items');
 
     try {
       // Convert foliate TOC format to EpubChapter format
@@ -2792,13 +2795,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           .toList();
 
       if (mounted) {
-        print('✅ Setting ${chapters.length} chapters in provider');
+        logger.info(_tag, 'Setting ${chapters.length} chapters in provider');
         ref.read(epubStateProvider.notifier).setChapters(chapters);
-        print('✅ Loaded ${chapters.length} chapters from TOC');
+        logger.info(_tag, 'Loaded ${chapters.length} chapters from TOC');
       }
     } catch (e, st) {
       if (mounted) {
-        print('❌ Error processing TOC: $e\n$st');
+        logger.error(_tag, 'Error processing TOC', e, st);
       }
     }
   }
@@ -2853,11 +2856,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       if (_pendingHighlights != null && _pendingHighlights!.isNotEmpty) {
         _addAnnotationsForSection(sectionIndex);
       } else {
-        if (kDebugMode) {
-          print(
-            'Section $sectionIndex loaded, but highlights not yet restored. Will add when highlights load.',
-          );
-        }
+        logger.verbose(_tag, 'Section $sectionIndex loaded, but highlights not yet restored. Will add when highlights load.');
       }
     } catch (e) {
       if (mounted) {

@@ -6,8 +6,13 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:modal_bottom_sheet/modal_bottom_sheet.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/reader_providers.dart';
+import '../providers/logging_providers.dart';
+import '../services/logger_service.dart';
 import 'koreader_sync_settings_screen.dart';
 import 'html_viewer_screen.dart';
+import 'logs_viewer_page.dart';
+
+const String _tag = 'SettingsScreen';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -37,6 +42,7 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: const Text('Manage KOReader sync settings'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
+              logger.info(_tag, 'User tapped KOReader Sync settings');
               Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (context) => const KoreaderSyncSettingsScreen(),
@@ -54,6 +60,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             trailing: Icon(Icons.chevron_right, color: variant.textColor),
             onTap: () {
+              logger.info(_tag, 'User tapped Theme settings');
               showMaterialModalBottomSheet(
                 context: context,
                 barrierColor: Colors.transparent,
@@ -82,6 +89,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             trailing: Icon(Icons.open_in_new, color: variant.textColor),
             onTap: () async {
+              logger.info(_tag, 'User tapped GitHub Repository link');
               final url = Uri.parse(
                 'https://github.com/Neighborhood-Nerd/everbound-ereader-app',
               );
@@ -102,6 +110,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             trailing: Icon(Icons.chevron_right, color: variant.textColor),
             onTap: () {
+              logger.info(_tag, 'User tapped Privacy Policy');
               Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (context) => HtmlViewerScreen(
@@ -125,6 +134,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             trailing: Icon(Icons.chevron_right, color: variant.textColor),
             onTap: () {
+              logger.info(_tag, 'User tapped Terms of Service');
               Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (context) => HtmlViewerScreen(
@@ -145,10 +155,62 @@ class SettingsScreen extends ConsumerWidget {
             ),
             trailing: Icon(Icons.open_in_new, color: variant.textColor),
             onTap: () async {
+              logger.info(_tag, 'User tapped Tip Jar link');
               final url = Uri.parse('https://buymeacoffee.com/NathenxBrewer');
               if (await canLaunchUrl(url)) {
                 await launchUrl(url, mode: LaunchMode.externalApplication);
               }
+            },
+          ),
+          _buildSectionHeader('Debug'),
+          Consumer(
+            builder: (context, ref, child) {
+              final loggingEnabled = ref.watch(loggingEnabledProvider);
+              return Column(
+                children: [
+                  SwitchListTile(
+                    dense: true,
+                    title: Text(
+                      'Enable Logging',
+                      style: TextStyle(color: variant.textColor),
+                    ),
+                    subtitle: Text(
+                      'Enable when reproducing an issue. Keeping enabled could cause performance issues',
+                      style: TextStyle(color: variant.textColor.withOpacity(0.7)),
+                    ),
+                    value: loggingEnabled.enabled,
+                    onChanged: (value) {
+                      logger.info(_tag, 'User ${value ? "enabled" : "disabled"} logging');
+                      ref.read(loggingEnabledProvider.notifier).setEnabled(value);
+                    },
+                    secondary: Icon(
+                      Icons.bug_report,
+                      color: variant.textColor,
+                    ),
+                  ),
+                  if (loggingEnabled.enabled)
+                    ListTile(
+                      leading: Icon(Icons.article, color: variant.textColor),
+                      title: Text(
+                        'View Logs',
+                        style: TextStyle(color: variant.textColor),
+                      ),
+                      subtitle: Text(
+                        'View and share app logs',
+                        style: TextStyle(color: variant.textColor),
+                      ),
+                      trailing: Icon(Icons.chevron_right, color: variant.textColor),
+                      onTap: () {
+                        logger.info(_tag, 'User tapped View Logs');
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => const LogsViewerPage(),
+                          ),
+                        );
+                      },
+                    ),
+                ],
+              );
             },
           ),
         ],
