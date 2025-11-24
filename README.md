@@ -72,17 +72,44 @@ Stay tuned for continuous improvements and updates! Contributions and suggestion
 
 ## Screenshots
 
-![Home Screen](./screenshots/screen_home.png)
-
-![Reader Dark Mode](./screenshots/screen_reader_dark.png)
-
-![Themes](./screenshots/screen_themes.png)
-
-![KOReader Sync](./screenshots/screen_koreader.png)
-
-![Book Detail](./screenshots/screen_bookdetail.png)
-
-![Selection Menu](./screenshots/screen_selectionmenu.png)
+<table>
+  <tr>
+    <td align="center">
+      <img src="./screenshots/screen_home.png" alt="Home Screen" width="45%" />
+      <br>
+      <strong>Home Screen</strong>
+    </td>
+    <td align="center">
+      <img src="./screenshots/screen_reader_dark.png" alt="Reader Dark Mode" width="45%" />
+      <br>
+      <strong>Reader Dark Mode</strong>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="./screenshots/screen_themes.png" alt="Themes" width="45%" />
+      <br>
+      <strong>Themes</strong>
+    </td>
+    <td align="center">
+      <img src="./screenshots/screen_koreader.png" alt="KOReader Sync" width="45%" />
+      <br>
+      <strong>KOReader Sync</strong>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="./screenshots/screen_bookdetail.png" alt="Book Detail" width="45%" />
+      <br>
+      <strong>Book Detail</strong>
+    </td>
+    <td align="center">
+      <img src="./screenshots/screen_selectionmenu.png" alt="Selection Menu" width="45%" />
+      <br>
+      <strong>Selection Menu</strong>
+    </td>
+  </tr>
+</table>
 
 ---
 
