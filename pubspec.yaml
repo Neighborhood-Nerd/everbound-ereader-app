@@ -32,10 +32,9 @@ dependencies:
   wakelock_plus: ^1.4.0
   screen_brightness: ^2.1.7
   flutter_native_splash: ^2.4.7
+  url_launcher: ^6.2.5
 
 dev_dependencies:
-  flutter_test:
-    sdk: flutter
   flutter_lints: ^6.0.0
 
 flutter:
