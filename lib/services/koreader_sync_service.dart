@@ -35,12 +35,25 @@ class KoSyncProgress {
 class KOSyncService {
   final SyncServer server;
   final String checksumMethod; // 'binary' (file content), 'hash', or 'filename'
+  http.Client? _httpClient;
 
   KOSyncService({
     required this.server,
     this.checksumMethod =
         'binary', // Default to 'binary' to match KOReader's 'Binary' method
   });
+
+  /// Get or create a configured HTTP client with better DNS resolution
+  http.Client get _client {
+    _httpClient ??= http.Client();
+    return _httpClient!;
+  }
+
+  /// Dispose of the HTTP client
+  void dispose() {
+    _httpClient?.close();
+    _httpClient = null;
+  }
 
   /// Get the base URL for the sync server
   String get baseUrl {
@@ -138,64 +151,100 @@ class KOSyncService {
   /// Returns true if authentication succeeds, false otherwise
   /// Throws an exception if there's a connection error
   Future<bool> testConnection() async {
-    try {
-      logger.verbose(
-        _tag,
-        'Testing connection to KOReader sync server: $baseUrl (username: ${server.username})',
-      );
-      // Test authentication by calling /users/auth endpoint per KOReader sync protocol
-      final url = Uri.parse('${baseUrl}users/auth');
+    const maxRetries = 3;
+    const retryDelay = Duration(seconds: 1);
 
-      final response = await http
-          .get(url, headers: _getAuthHeaders())
-          .timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        logger.info(
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logger.verbose(
           _tag,
-          'KOReader sync authentication successful for user: ${server.username}',
+          'Testing connection to KOReader sync server: $baseUrl (username: ${server.username}) [Attempt $attempt/$maxRetries]',
         );
-        return true; // Authentication successful
-      }
+        // Test authentication by calling /users/auth endpoint per KOReader sync protocol
+        final url = Uri.parse('${baseUrl}users/auth');
 
-      if (response.statusCode == 401) {
-        // Unauthorized - invalid credentials
+        final response = await _client
+            .get(url, headers: _getAuthHeaders())
+            .timeout(const Duration(seconds: 15));
+
+        if (response.statusCode == 200) {
+          logger.info(
+            _tag,
+            'KOReader sync authentication successful for user: ${server.username}',
+          );
+          return true; // Authentication successful
+        }
+
+        if (response.statusCode == 401) {
+          // Unauthorized - invalid credentials
+          logger.error(
+            _tag,
+            'KOReader sync authentication failed - invalid credentials (401 Unauthorized) for user: ${server.username}',
+          );
+          return false;
+        }
+
+        // Other error status codes
         logger.error(
           _tag,
-          'KOReader sync authentication failed - invalid credentials (401 Unauthorized) for user: ${server.username}',
+          'KOReader sync authentication failed - server returned status ${response.statusCode}: ${response.body}',
         );
-        return false;
-      }
+        throw Exception(
+          'Server returned status ${response.statusCode}: ${response.body}',
+        );
+      } catch (e) {
+        // If this is the last attempt, throw the error
+        if (attempt == maxRetries) {
+          if (e is TimeoutException) {
+            logger.error(
+              _tag,
+              'KOReader sync connection timeout: Unable to reach the server at $baseUrl',
+            );
+            throw Exception('Connection timeout: Unable to reach the server');
+          } else if (e is SocketException) {
+            logger.error(
+              _tag,
+              'KOReader sync connection error: Unable to connect to the server at $baseUrl',
+              e,
+            );
+            throw Exception(
+              'Connection error: Unable to connect to the server',
+            );
+          } else if (e is FormatException) {
+            logger.error(_tag, 'KOReader sync invalid server URL: $baseUrl', e);
+            throw Exception('Invalid server URL');
+          }
+          logger.error(_tag, 'KOReader sync authentication error', e);
+          rethrow;
+        }
 
-      // Other error status codes
-      logger.error(
-        _tag,
-        'KOReader sync authentication failed - server returned status ${response.statusCode}: ${response.body}',
-      );
-      throw Exception(
-        'Server returned status ${response.statusCode}: ${response.body}',
-      );
-    } catch (e) {
-      if (e is TimeoutException) {
-        logger.error(
-          _tag,
-          'KOReader sync connection timeout: Unable to reach the server at $baseUrl',
-        );
-        throw Exception('Connection timeout: Unable to reach the server');
-      } else if (e is SocketException) {
-        logger.error(
-          _tag,
-          'KOReader sync connection error: Unable to connect to the server at $baseUrl',
-          e,
-        );
-        throw Exception('Connection error: Unable to connect to the server');
-      } else if (e is FormatException) {
-        logger.error(_tag, 'KOReader sync invalid server URL: $baseUrl', e);
-        throw Exception('Invalid server URL');
+        // For DNS/host lookup errors, wait and retry
+        if (e is SocketException && e.toString().contains('host lookup')) {
+          logger.verbose(
+            _tag,
+            'DNS lookup failed, retrying in ${retryDelay.inSeconds} seconds...',
+          );
+          await Future.delayed(retryDelay);
+          continue;
+        }
+
+        // For timeout errors, wait and retry
+        if (e is TimeoutException) {
+          logger.verbose(
+            _tag,
+            'Connection timeout, retrying in ${retryDelay.inSeconds} seconds...',
+          );
+          await Future.delayed(retryDelay);
+          continue;
+        }
+
+        // For other errors, rethrow immediately
+        rethrow;
       }
-      logger.error(_tag, 'KOReader sync authentication error', e);
-      rethrow;
     }
+
+    // Should never reach here, but just in case
+    throw Exception('Connection failed after $maxRetries attempts');
   }
 
   /// Fetch reading progress from sync server
@@ -205,7 +254,7 @@ class KOSyncService {
       // KOReader sync servers use /syncs/progress/:document endpoint
       final url = Uri.parse('${baseUrl}syncs/progress/$digest');
 
-      final response = await http
+      final response = await _client
           .get(url, headers: _getAuthHeaders())
           .timeout(const Duration(seconds: 10));
 
@@ -285,7 +334,7 @@ class KOSyncService {
         'device_id': server.deviceId ?? '',
       };
 
-      final response = await http
+      final response = await _client
           .put(url, headers: _getAuthHeaders(), body: jsonEncode(body))
           .timeout(const Duration(seconds: 10));
 
