@@ -40,14 +40,17 @@ class FileSourceService {
         totalImported += result.imported;
         errors.addAll(result.errors);
 
-        // Update last scanned timestamp
         dbService.updateFileSourceLastScanned(source.id!, DateTime.now());
       } catch (e) {
         errors.add('Error scanning ${source.name}: $e');
       }
     }
 
-    return ScanResult(scanned: totalScanned, imported: totalImported, errors: errors);
+    return ScanResult(
+      scanned: totalScanned,
+      imported: totalImported,
+      errors: errors,
+    );
   }
 
   /// Scan a specific file source
@@ -77,19 +80,105 @@ class FileSourceService {
     Function(int booksFound, int booksImported)? onProgress,
   }) async {
     if (source.localPath == null || source.localPath!.isEmpty) {
-      return ScanResult(scanned: 0, imported: 0, errors: ['Local path not configured']);
+      return ScanResult(
+        scanned: 0,
+        imported: 0,
+        errors: ['Local path not configured'],
+      );
     }
 
     final directory = io.Directory(source.localPath!);
+
     if (!await directory.exists()) {
-      return ScanResult(scanned: 0, imported: 0, errors: ['Directory does not exist: ${source.localPath}']);
+      return ScanResult(
+        scanned: 0,
+        imported: 0,
+        errors: ['Directory does not exist: ${source.localPath}'],
+      );
     }
 
     final epubFiles = <String>[];
-    await _findEpubFiles(directory, epubFiles);
+    try {
+      await _findEpubFiles(directory, epubFiles);
+    } catch (e) {
+      String errorMessage = e.toString();
+
+      // If the error contains our detailed scoped storage message, extract it
+      if (e.toString().contains('scoped storage') ||
+          e.toString().contains(
+            'Cannot access directory contents due to Android',
+          )) {
+        // Extract the detailed message from the exception chain
+        errorMessage = e.toString();
+
+        // Try to extract just the helpful part (the detailed message)
+        // Look for the part that starts with "Cannot access directory contents"
+        final detailedStart = errorMessage.indexOf(
+          'Cannot access directory contents',
+        );
+        if (detailedStart != -1) {
+          errorMessage = errorMessage.substring(detailedStart);
+          // Remove any trailing "Please check file permissions" or similar
+          final checkIndex = errorMessage.indexOf(
+            '. Please check file permissions',
+          );
+          if (checkIndex != -1) {
+            errorMessage = errorMessage.substring(0, checkIndex);
+          }
+        } else {
+          // Fallback: remove common prefixes
+          errorMessage = errorMessage
+              .replaceAll(RegExp(r'^Exception:\s*'), '')
+              .replaceAll(RegExp(r'^Cannot read directory[^:]*:\s*'), '');
+        }
+      } else if (e.toString().contains('Permission') ||
+          e.toString().contains('permission') ||
+          e.toString().contains('access denied') ||
+          e.toString().contains('Access denied')) {
+        errorMessage =
+            'Permission denied: Cannot read directory. Please grant storage permissions in app settings.';
+      } else if (e.toString().contains('Cannot read directory')) {
+        errorMessage = e.toString();
+        // Remove the outer "Exception: " wrapper if present
+        errorMessage = errorMessage
+            .replaceAll(RegExp(r'^Exception:\s*'), '')
+            .replaceAll(RegExp(r'^Cannot read directory[^:]*:\s*'), '');
+      }
+      return ScanResult(scanned: 0, imported: 0, errors: [errorMessage]);
+    }
 
     // Report books found
     onProgress?.call(epubFiles.length, 0);
+
+    if (epubFiles.isEmpty) {
+      // Check if directory is actually readable by trying to list it
+      try {
+        final testList = directory.list();
+        final hasItems = await testList.isEmpty;
+        if (hasItems) {
+          return ScanResult(
+            scanned: 0,
+            imported: 0,
+            errors: [
+              'No EPUB files found in directory. The directory appears to be empty or contains no .epub files.',
+            ],
+          );
+        }
+      } catch (e) {
+        return ScanResult(
+          scanned: 0,
+          imported: 0,
+          errors: [
+            'Cannot access directory contents. Please check file permissions. Error: $e',
+          ],
+        );
+      }
+      return ScanResult(
+        scanned: 0,
+        imported: 0,
+        errors: ['No EPUB files found in directory'],
+      );
+    }
 
     return await _importFiles(epubFiles, source.name, onProgress: onProgress);
   }
@@ -100,44 +189,112 @@ class FileSourceService {
     Function(int booksFound, int booksImported)? onProgress,
   }) async {
     if (source.url == null || source.url!.isEmpty) {
-      return ScanResult(scanned: 0, imported: 0, errors: ['WebDAV URL not configured']);
+      return ScanResult(
+        scanned: 0,
+        imported: 0,
+        errors: ['WebDAV URL not configured'],
+      );
     }
 
     if (source.selectedPath == null || source.selectedPath!.isEmpty) {
-      return ScanResult(scanned: 0, imported: 0, errors: ['WebDAV folder not selected']);
+      return ScanResult(
+        scanned: 0,
+        imported: 0,
+        errors: ['WebDAV folder not selected'],
+      );
     }
 
     try {
-      final client = newClient(source.url!, user: source.username ?? '', password: source.password ?? '');
+      final client = newClient(
+        source.url!,
+        user: source.username ?? '',
+        password: source.password ?? '',
+      );
       final epubFiles = <String>[];
-      await _findEpubFilesWebDav(client, source.selectedPath!, epubFiles, source);
+      await _findEpubFilesWebDav(
+        client,
+        source.selectedPath!,
+        epubFiles,
+        source,
+      );
 
       // Report books found
       onProgress?.call(epubFiles.length, 0);
 
-      return await _importFilesWebDav(client, epubFiles, source, onProgress: onProgress);
+      return await _importFilesWebDav(
+        client,
+        epubFiles,
+        source,
+        onProgress: onProgress,
+      );
     } catch (e) {
-      return ScanResult(scanned: 0, imported: 0, errors: ['Error connecting to WebDAV: $e']);
+      return ScanResult(
+        scanned: 0,
+        imported: 0,
+        errors: ['Error connecting to WebDAV: $e'],
+      );
     }
   }
 
   /// Recursively find EPUB files in local directory
   /// This method scans all subdirectories recursively to find EPUB files
-  Future<void> _findEpubFiles(io.Directory directory, List<String> epubFiles) async {
+  Future<void> _findEpubFiles(
+    io.Directory directory,
+    List<String> epubFiles,
+  ) async {
     try {
-      // Use recursive: true to scan all subdirectories
-      await for (final entity in directory.list(recursive: true)) {
-        if (entity is io.File) {
-          final fileName = entity.path.toLowerCase();
-          if (fileName.endsWith('.epub')) {
-            epubFiles.add(entity.path);
+      if (!await directory.exists()) {
+        throw Exception(
+          'Directory does not exist or is not accessible: ${directory.path}',
+        );
+      }
+
+      final testList = directory.list();
+      final items = await testList.toList();
+
+      if (items.isEmpty) {
+        try {
+          final testPath = '${directory.path}/.test_access_check';
+          final testFile = io.File(testPath);
+          final parentExists = await testFile.parent.exists();
+
+          if (parentExists) {
+            throw Exception(
+              'Cannot access directory contents due to Android scoped storage restrictions. '
+              'Please try one of these solutions:\n'
+              '1. Grant "All files access" permission in Android Settings > Apps > Everbound > Permissions\n'
+              '2. Use a directory in the app\'s own storage (Android/data/com.neighborhoodnerd.everbound)\n'
+              '3. Select the directory again using the file picker to refresh permissions',
+            );
+          }
+        } catch (e) {
+          if (e.toString().contains('scoped storage')) {
+            rethrow;
+          }
+        }
+      }
+
+      try {
+        await for (final entity in directory.list(recursive: true)) {
+          if (entity is io.File) {
+            final fileName = entity.path.toLowerCase();
+            if (fileName.endsWith('.epub')) {
+              epubFiles.add(entity.path);
+            }
+          }
+        }
+      } catch (e) {
+        await for (final entity in directory.list()) {
+          if (entity is io.File) {
+            final fileName = entity.path.toLowerCase();
+            if (fileName.endsWith('.epub')) {
+              epubFiles.add(entity.path);
+            }
           }
         }
       }
     } catch (e) {
-      print('Error scanning directory ${directory.path}: $e');
-      // Continue even if there's an error in one directory
-      // The recursive scan will continue in other directories
+      rethrow;
     }
   }
 
@@ -149,7 +306,9 @@ class FileSourceService {
     FileSource source,
   ) async {
     try {
-      final items = await client.readDir(currentPath.isEmpty ? '' : currentPath);
+      final items = await client.readDir(
+        currentPath.isEmpty ? '' : currentPath,
+      );
       for (final item in items) {
         if (item.name == null) continue;
 
@@ -172,7 +331,6 @@ class FileSourceService {
         }
       }
     } catch (e) {
-      print('Error scanning WebDAV path $currentPath: $e');
       // Continue scanning other directories even if one fails
     }
   }
@@ -192,30 +350,39 @@ class FileSourceService {
 
     for (int i = 0; i < epubFiles.length; i++) {
       final filePath = epubFiles[i];
+
       try {
-        // Check if book already exists (by checking if file path is already imported)
-        // Note: For local files, we check the original file path
-        final existingBook = dbService.getBookByFilePath(filePath);
-        if (existingBook != null) {
-          // Still report progress even if skipped
+        final file = io.File(filePath);
+        if (!await file.exists()) {
+          errors.add('File does not exist: $filePath');
           onProgress?.call(epubFiles.length, imported);
-          continue; // Skip if already imported
+          continue;
         }
 
-        // Import the book
+        final fileName = path.basename(filePath);
+        final existingBooks = dbService.getAllBooks();
+        final alreadyImported = existingBooks.any(
+          (book) => book.originalFileName == fileName,
+        );
+
+        if (alreadyImported) {
+          onProgress?.call(epubFiles.length, imported);
+          continue;
+        }
+
         await importService.importEpubFile(filePath);
         imported++;
-        
-        // Report progress after each import
         onProgress?.call(epubFiles.length, imported);
       } catch (e) {
         errors.add('Error importing $filePath: $e');
-        // Report progress even on error
         onProgress?.call(epubFiles.length, imported);
       }
     }
-
-    return ScanResult(scanned: epubFiles.length, imported: imported, errors: errors);
+    return ScanResult(
+      scanned: epubFiles.length,
+      imported: imported,
+      errors: errors,
+    );
   }
 
   /// Import EPUB files from WebDAV source
@@ -234,7 +401,9 @@ class FileSourceService {
 
     // Create a temporary directory for downloads
     final tempDir = io.Directory.systemTemp;
-    final downloadDir = io.Directory(path.join(tempDir.path, 'Everbound', 'webdav_downloads'));
+    final downloadDir = io.Directory(
+      path.join(tempDir.path, 'Everbound', 'webdav_downloads'),
+    );
     if (!await downloadDir.exists()) {
       await downloadDir.create(recursive: true);
     }
@@ -259,7 +428,8 @@ class FileSourceService {
         final alreadyImported = existingBooks.any(
           (book) =>
               book.originalFileName == fileName ||
-              (book.filePath.contains(fileName) && book.originalFileName == fileName),
+              (book.filePath.contains(fileName) &&
+                  book.originalFileName == fileName),
         );
 
         if (alreadyImported) {
@@ -281,7 +451,7 @@ class FileSourceService {
         }
 
         imported++;
-        
+
         // Report progress after each import
         onProgress?.call(epubFilePaths.length, imported);
       } catch (e) {
@@ -297,10 +467,14 @@ class FileSourceService {
         await downloadDir.delete(recursive: true);
       }
     } catch (e) {
-      print('Error cleaning up download directory: $e');
+      // Ignore cleanup errors
     }
 
-    return ScanResult(scanned: epubFilePaths.length, imported: imported, errors: errors);
+    return ScanResult(
+      scanned: epubFilePaths.length,
+      imported: imported,
+      errors: errors,
+    );
   }
 }
 
@@ -310,5 +484,9 @@ class ScanResult {
   final int imported;
   final List<String> errors;
 
-  ScanResult({required this.scanned, required this.imported, required this.errors});
+  ScanResult({
+    required this.scanned,
+    required this.imported,
+    required this.errors,
+  });
 }

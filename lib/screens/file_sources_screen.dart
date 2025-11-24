@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
+import 'package:webdav_client/webdav_client.dart';
+import 'dart:async';
 import '../colors.dart';
 import '../models/file_source_model.dart';
 import '../services/local_database_service.dart';
+import '../services/permissions_service.dart';
 import '../providers/file_source_providers.dart';
 import '../providers/my_books_providers.dart';
 import '../widgets/webdav_browser_widget.dart';
@@ -17,6 +20,8 @@ class FileSourcesScreen extends ConsumerStatefulWidget {
 }
 
 class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
+  final _permissionsService = PermissionsService.instance;
+
   Future<void> _addSource() async {
     // Show dialog to choose source type
     final sourceType = await showDialog<FileSourceType>(
@@ -52,6 +57,12 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
 
   Future<void> _addLocalSource() async {
     try {
+      final hasPermission = await _permissionsService
+          .checkAndRequestStoragePermissions(context);
+      if (!hasPermission) {
+        return;
+      }
+
       final String? selectedDirectory = await FilePicker.platform
           .getDirectoryPath();
       if (selectedDirectory == null) return;
@@ -125,120 +136,223 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
     }
   }
 
+  /// Test WebDAV connection with given credentials
+  Future<bool> _testWebDavConnection(
+    String url,
+    String username,
+    String password,
+  ) async {
+    try {
+      final client = newClient(url, user: username, password: password);
+      await client.readDir('').timeout(const Duration(seconds: 10));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   Future<void> _addWebDavSource() async {
     final urlController = TextEditingController();
     final usernameController = TextEditingController();
     final passwordController = TextEditingController();
     final nameController = TextEditingController();
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add WebDAV Source'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Source Name',
-                  hintText: 'Enter a name for this source',
+    String? connectionError;
+
+    // Show dialog and handle connection testing with retry loop
+    bool? confirmed;
+    do {
+      confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) {
+          bool isTesting = false;
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                title: const Text('Add WebDAV Source'),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (connectionError != null) ...[
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: Colors.red[50],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.red[300]!),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.error_outline, color: Colors.red[700]),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  connectionError!,
+                                  style: TextStyle(
+                                    color: Colors.red[900],
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      TextField(
+                        controller: nameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Source Name',
+                          hintText: 'Enter a name for this source',
+                        ),
+                        autofocus: connectionError == null,
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: urlController,
+                        decoration: const InputDecoration(
+                          labelText: 'WebDAV URL',
+                          hintText: 'https://example.com/dav',
+                        ),
+                        keyboardType: TextInputType.url,
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: usernameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Username',
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: passwordController,
+                        decoration: const InputDecoration(
+                          labelText: 'Password',
+                        ),
+                        obscureText: true,
+                      ),
+                    ],
+                  ),
                 ),
-                autofocus: true,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: urlController,
-                decoration: const InputDecoration(
-                  labelText: 'WebDAV URL',
-                  hintText: 'https://example.com/dav',
-                ),
-                keyboardType: TextInputType.url,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: usernameController,
-                decoration: const InputDecoration(labelText: 'Username'),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: passwordController,
-                decoration: const InputDecoration(labelText: 'Password'),
-                obscureText: true,
-              ),
-            ],
-          ),
+                actions: [
+                  TextButton(
+                    onPressed: isTesting
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  TextButton(
+                    onPressed: isTesting
+                        ? null
+                        : () async {
+                            // Validate fields
+                            if (nameController.text.isEmpty ||
+                                urlController.text.isEmpty ||
+                                usernameController.text.isEmpty ||
+                                passwordController.text.isEmpty) {
+                              return;
+                            }
+
+                            // Show loading state
+                            isTesting = true;
+                            setDialogState(() {
+                              connectionError = null;
+                            });
+
+                            // Test connection
+                            final testResult = await _testWebDavConnection(
+                              urlController.text,
+                              usernameController.text,
+                              passwordController.text,
+                            );
+
+                            isTesting = false;
+                            setDialogState(() {});
+
+                            if (testResult) {
+                              // Connection successful - close dialog with true
+                              Navigator.of(context).pop(true);
+                            } else {
+                              // Connection failed - show error and keep dialog open
+                              setDialogState(() {
+                                connectionError =
+                                    'Connection failed. Please check your URL, username, and password.';
+                              });
+                            }
+                          },
+                    child: isTesting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Connect & Select Folder'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+
+      if (confirmed == false) {
+        // User cancelled
+        return;
+      }
+      // If confirmed is true, connection was successful, exit loop
+    } while (confirmed != true);
+
+    // Navigate to WebDAV browser to select folder
+    final selectedPath = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (context) => WebDavBrowserWidget(
+          url: urlController.text,
+          username: usernameController.text,
+          password: passwordController.text,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Connect & Select Folder'),
-          ),
-        ],
       ),
     );
 
-    if (confirmed == true &&
-        nameController.text.isNotEmpty &&
-        urlController.text.isNotEmpty &&
-        usernameController.text.isNotEmpty &&
-        passwordController.text.isNotEmpty) {
-      // Navigate to WebDAV browser to select folder
-      final selectedPath = await Navigator.of(context).push<String>(
-        MaterialPageRoute(
-          builder: (context) => WebDavBrowserWidget(
-            url: urlController.text,
-            username: usernameController.text,
-            password: passwordController.text,
-          ),
-        ),
-      );
+    if (selectedPath != null && mounted) {
+      try {
+        final dbService = LocalDatabaseService.instance;
+        await dbService.initialize();
 
-      if (selectedPath != null && mounted) {
-        try {
-          final dbService = LocalDatabaseService.instance;
-          await dbService.initialize();
+        final source = FileSource(
+          name: nameController.text,
+          type: FileSourceType.webdav,
+          url: urlController.text,
+          username: usernameController.text,
+          password: passwordController.text,
+          selectedPath: selectedPath,
+          createdAt: DateTime.now(),
+        );
 
-          final source = FileSource(
-            name: nameController.text,
-            type: FileSourceType.webdav,
-            url: urlController.text,
-            username: usernameController.text,
-            password: passwordController.text,
-            selectedPath: selectedPath,
-            createdAt: DateTime.now(),
+        final sourceId = dbService.insertFileSource(source);
+        ref.read(fileSourcesRefreshProvider.notifier).state++;
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'WebDAV source added successfully. Scanning for books...',
+              ),
+              backgroundColor: Colors.green,
+            ),
           );
 
-          final sourceId = dbService.insertFileSource(source);
-          ref.read(fileSourcesRefreshProvider.notifier).state++;
-
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'WebDAV source added successfully. Scanning for books...',
-                ),
-                backgroundColor: Colors.green,
-              ),
-            );
-
-            // Auto-trigger scan for the newly added source
-            _scanSingleSource(sourceId);
-          }
-        } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Error adding WebDAV source: $e'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
+          // Auto-trigger scan for the newly added source
+          _scanSingleSource(sourceId);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error adding WebDAV source: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
         }
       }
     }
@@ -515,12 +629,51 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
 
   Future<void> _scanSingleSource(int sourceId) async {
     try {
+      // Invalidate the cached provider to force a fresh scan
+      ref.invalidate(scanSingleSourceProvider(sourceId));
+      // Then read the future to get the actual result
       final result = await ref.read(scanSingleSourceProvider(sourceId).future);
 
       // Refresh books list
       ref.read(booksRefreshProvider.notifier).state++;
 
       if (mounted) {
+        // Check if there's a scoped storage error and show permission prompt immediately
+        final hasScopedStorageError = result.errors.any(
+          (e) =>
+              e.contains('scoped storage') ||
+              e.contains('Cannot access directory contents'),
+        );
+
+        if (hasScopedStorageError) {
+          // Show permission request dialog immediately
+          final shouldRequest = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Storage Permission Required'),
+              content: const Text(
+                'To scan for books in your selected folder, Everbound needs '
+                '"All files access" permission.\n\n'
+                'This will open Android Settings where you can grant the permission.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('Open Settings'),
+                ),
+              ],
+            ),
+          );
+
+          if (shouldRequest == true) {
+            await _permissionsService.requestStoragePermission(context);
+          }
+        }
+
         final message = result.errors.isEmpty
             ? 'Scan complete: ${result.imported} new book(s) imported from ${result.scanned} file(s)'
             : 'Scan complete with ${result.errors.length} error(s): ${result.imported} new book(s) imported';
@@ -532,6 +685,58 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
                 ? Colors.green
                 : Colors.orange,
             duration: const Duration(seconds: 4),
+            action: result.errors.isNotEmpty
+                ? SnackBarAction(
+                    label: 'Details',
+                    textColor: Colors.white,
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Scan Errors'),
+                          content: SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: result.errors.map((error) {
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: Text(
+                                    '• $error',
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                          actions: [
+                            // Check if any error is a scoped storage error
+                            if (result.errors.any(
+                              (e) =>
+                                  e.contains('scoped storage') ||
+                                  e.contains(
+                                    'Cannot access directory contents',
+                                  ),
+                            ))
+                              TextButton.icon(
+                                onPressed: () async {
+                                  Navigator.of(context).pop();
+                                  await _permissionsService
+                                      .requestStoragePermission(context);
+                                },
+                                icon: const Icon(Icons.settings),
+                                label: const Text('Grant Permission'),
+                              ),
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: const Text('Close'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  )
+                : null,
           ),
         );
       }
@@ -558,10 +763,49 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
     try {
       final result = await ref.read(scanSourcesProvider(true).future);
 
+      // Log errors for debugging
+      if (result.errors.isNotEmpty) {}
+
       // Refresh books list
       ref.read(booksRefreshProvider.notifier).state++;
 
       if (mounted) {
+        // Check if there's a scoped storage error and show permission prompt immediately
+        final hasScopedStorageError = result.errors.any(
+          (e) =>
+              e.contains('scoped storage') ||
+              e.contains('Cannot access directory contents'),
+        );
+
+        if (hasScopedStorageError) {
+          // Show permission request dialog immediately
+          final shouldRequest = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Storage Permission Required'),
+              content: const Text(
+                'To scan for books in your selected folder, Everbound needs '
+                '"All files access" permission.\n\n'
+                'This will open Android Settings where you can grant the permission.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('Open Settings'),
+                ),
+              ],
+            ),
+          );
+
+          if (shouldRequest == true) {
+            await _permissionsService.requestStoragePermission(context);
+          }
+        }
+
         final message = result.errors.isEmpty
             ? 'Scan complete: ${result.imported} new book(s) imported from ${result.scanned} file(s)'
             : 'Scan complete with ${result.errors.length} error(s): ${result.imported} new book(s) imported';
@@ -573,6 +817,58 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
                 ? Colors.green
                 : Colors.orange,
             duration: const Duration(seconds: 4),
+            action: result.errors.isNotEmpty
+                ? SnackBarAction(
+                    label: 'Details',
+                    textColor: Colors.white,
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Scan Errors'),
+                          content: SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: result.errors.map((error) {
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: Text(
+                                    '• $error',
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                          actions: [
+                            // Check if any error is a scoped storage error
+                            if (result.errors.any(
+                              (e) =>
+                                  e.contains('scoped storage') ||
+                                  e.contains(
+                                    'Cannot access directory contents',
+                                  ),
+                            ))
+                              TextButton.icon(
+                                onPressed: () async {
+                                  Navigator.of(context).pop();
+                                  await _permissionsService
+                                      .requestStoragePermission(context);
+                                },
+                                icon: const Icon(Icons.settings),
+                                label: const Text('Grant Permission'),
+                              ),
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: const Text('Close'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  )
+                : null,
           ),
         );
       }

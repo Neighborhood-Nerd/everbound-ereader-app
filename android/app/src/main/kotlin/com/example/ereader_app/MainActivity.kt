@@ -1,5 +1,9 @@
 package com.neighborhoodnerd.everbound
 
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.view.KeyEvent
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -8,6 +12,7 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.neighborhoodnerd.everbound/volume_keys"
+    private val PERMISSIONS_CHANNEL = "com.neighborhoodnerd.everbound/permissions"
     private val EVENT_CHANNEL = "com.neighborhoodnerd.everbound/volume_key_events"
     private var shouldInterceptVolumeKeys = false
     private var eventSink: EventChannel.EventSink? = null
@@ -20,6 +25,53 @@ class MainActivity : FlutterActivity() {
                 "setVolumeKeyInterception" -> {
                     shouldInterceptVolumeKeys = call.arguments as Boolean
                     result.success(null)
+                }
+                else -> {
+                    result.notImplemented()
+                }
+            }
+        }
+        
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PERMISSIONS_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "openStoragePermissionSettings" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        // Android 11+ (API 30+): Try to open "All files access" page for this app
+                        try {
+                            // First, try the app-specific "All files access" page
+                            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                            intent.data = Uri.parse("package:${packageName}")
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            // If app-specific page fails, try the general "All files access" page
+                            try {
+                                val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                                startActivity(intent)
+                                result.success(true)
+                            } catch (e2: Exception) {
+                                // Final fallback: open app settings
+                                try {
+                                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                                    intent.data = Uri.parse("package:${packageName}")
+                                    startActivity(intent)
+                                    result.success(true)
+                                } catch (e3: Exception) {
+                                    result.error("ERROR", "Failed to open settings: ${e3.message}", null)
+                                }
+                            }
+                        }
+                    } else {
+                        // Android 10 and below: Open app settings (permissions are visible there)
+                        try {
+                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                            intent.data = Uri.parse("package:${packageName}")
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("ERROR", "Failed to open settings: ${e.message}", null)
+                        }
+                    }
                 }
                 else -> {
                     result.notImplemented()
