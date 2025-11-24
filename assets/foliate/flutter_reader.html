@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Everbound Reader</title>
+  <style>
+    :root {
+      --theme-bg: #ffffff; /* Default light background - will be overridden by theme */
+      --theme-fg: #000000; /* Default text color - will be overridden by theme */
+    }
+    
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--theme-bg); /* Use CSS variable - will be set by theme */
+      color: var(--theme-fg);
+      transition: background-color 0.1s ease, color 0.1s ease; /* Smooth theme transitions */
+    }
+
+    #foliate-container {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--theme-bg); /* Use CSS variable - will be set by theme */
+    }
+
+    foliate-view {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="foliate-container"></div>
+  <!-- Import Flutter bridge which will set up everything needed for Flutter integration -->
+  <!-- flutter-bridge.js imports view.js which registers foliate-view custom element -->
+  <script type="module" src="./flutter-bridge.js"></script>
+</body>
+
+</html>

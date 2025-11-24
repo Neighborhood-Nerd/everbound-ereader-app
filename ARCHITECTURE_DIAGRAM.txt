@@ -1,0 +1,316 @@
+=============================================================================
+  FOLIATE EVENT BRIDGE ARCHITECTURE - COMPLETE FLOW DIAGRAM
+=============================================================================
+
+SCENARIO: User clicks on an annotation in the ebook
+
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│  LAYER 1: FOLIATE-JS SOURCE LAYER                                       │
+│  ═════════════════════════════════════════════════════════════════════  │
+│                                                                         │
+│  📄 File: reader.js (or overlayer.js)                                   │
+│                                                                         │
+│  Event Source Code:                                                    │
+│  ┌───────────────────────────────────────────────────────────────────┐ │
+│  │ this.view.addEventListener('show-annotation', e => {            │ │
+│  │     const annotation = this.annotationsByValue.get(e.detail.value)│ │
+│  │     if (annotation.note) alert(annotation.note)                  │ │
+│  │ })                                                                │ │
+│  └───────────────────────────────────────────────────────────────────┘ │
+│                                                                         │
+│  When triggered:                                                       │
+│  • Event name: 'show-annotation' (kebab-case)                         │
+│  • Event.detail: { value: 'epubcfi(...)' }                            │
+│  • Fires on: foliate-view element                                     │
+│                                                                         │
+└────────────────────────┬────────────────────────────────────────────────┘
+                         │
+                         │ Event bubbles up through DOM
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│  LAYER 2: FLUTTER-BRIDGE RELAY LAYER (JavaScript/Bridge)               │
+│  ═════════════════════════════════════════════════════════════════════  │
+│                                                                         │
+│  📄 File: assets/foliate/flutter-bridge.js                             │
+│                                                                         │
+│  Bridge Code:                                                          │
+│  ┌───────────────────────────────────────────────────────────────────┐ │
+│  │ view.addEventListener('show-annotation', (event) => {            │ │
+│  │     const { value } = event.detail || {};                        │ │
+│  │                                                                   │ │
+│  │     // Log for debugging                                         │ │
+│  │     logToFlutter(`📌 show-annotation fired...`);                 │ │
+│  │                                                                   │ │
+│  │     // Relay to Flutter via InAppWebView bridge                  │ │
+│  │     window.flutter_inappwebview?.callHandler(                    │ │
+│  │         'showAnnotation',    // ← camelCase                      │ │
+│  │         { value, detail: event.detail }                          │ │
+│  │     );                                                            │ │
+│  │ });                                                               │ │
+│  └───────────────────────────────────────────────────────────────────┘ │
+│                                                                         │
+│  Responsibilities:                                                     │
+│  ✓ Listen to foliate-js event                                         │
+│  ✓ Extract and serialize event data                                   │
+│  ✓ Log for debugging                                                  │
+│  ✓ Call flutter_inappwebview handler                                  │
+│  ✓ Handle errors gracefully                                           │
+│                                                                         │
+│  Key Notes:                                                            │
+│  • This is where foliate-js events enter the bridge                   │
+│  • Convert kebab-case → camelCase                                     │
+│  • Serialize data for JSON transmission                               │
+│  • Always include logging                                             │
+│                                                                         │
+└────────────────────────┬────────────────────────────────────────────────┘
+                         │
+                         │ JavaScript calls native bridge
+                         │ (InAppWebView plugin handles this)
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│  LAYER 3: FOLIATE-WEBVIEW HANDLER LAYER (Dart/Flutter)                 │
+│  ═════════════════════════════════════════════════════════════════════  │
+│                                                                         │
+│  📄 File: lib/widgets/foliate_webview.dart                             │
+│  Class: _FoliateWebViewState                                           │
+│                                                                         │
+│  Handler Registration Code:                                            │
+│  ┌───────────────────────────────────────────────────────────────────┐ │
+│  │ controller.addJavaScriptHandler(                                  │ │
+│  │     handlerName: 'showAnnotation',  // ← MUST match JS           │ │
+│  │     callback: (data) {                                            │ │
+│  │         try {                                                     │ │
+│  │             if (data is Map) {                                    │ │
+│  │                 final detail = Map<String, dynamic>.from(        │ │
+│  │                     data as Map<dynamic, dynamic>                 │ │
+│  │                 );                                                │ │
+│  │                 // Call the widget callback                       │ │
+│  │                 widget.onAnnotationEvent?.call(detail);           │ │
+│  │             } else if (data is List && data.isNotEmpty) {        │ │
+│  │                 final detail = Map<String, dynamic>.from(        │ │
+│  │                     data.first as Map<dynamic, dynamic>           │ │
+│  │                 );                                                │ │
+│  │                 widget.onAnnotationEvent?.call(detail);           │ │
+│  │             }                                                     │ │
+│  │         } catch (_) {}                                            │ │
+│  │         return null;                                              │ │
+│  │     },                                                            │ │
+│  │ );                                                                │ │
+│  └───────────────────────────────────────────────────────────────────┘ │
+│                                                                         │
+│  Responsibilities:                                                     │
+│  ✓ Register JavaScript handler with matching name                     │
+│  ✓ Handle data type conversions (dynamic → Map)                       │
+│  ✓ Parse JSON data into Dart structures                               │
+│  ✓ Call widget callback with processed data                           │
+│  ✓ Handle both Map and List data formats                              │
+│  ✓ Error handling with try-catch                                      │
+│                                                                         │
+│  Widget Properties:                                                    │
+│  • callback: FoliateAnnotationEventCallback? onAnnotationEvent;        │
+│    Defined as: typedef FoliateAnnotationEventCallback =                │
+│                void Function(Map<String, dynamic>);                    │
+│                                                                         │
+└────────────────────────┬────────────────────────────────────────────────┘
+                         │
+                         │ Callback is triggered
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│  LAYER 4: CONSUMER CODE LAYER (Your Business Logic)                    │
+│  ═════════════════════════════════════════════════════════════════════  │
+│                                                                         │
+│  📄 File: lib/screens/reader_screen.dart (or any widget using it)      │
+│                                                                         │
+│  Usage Example:                                                        │
+│  ┌───────────────────────────────────────────────────────────────────┐ │
+│  │ FoliateWebView(                                                   │ │
+│  │     controller: _foliateController,                              │ │
+│  │     epubFilePath: _bookPath,                                     │ │
+│  │     onAnnotationEvent: (detail) {  // ← Callback triggered here  │ │
+│  │         final value = detail['value'] as String?;                │ │
+│  │         final annotationData = detail['detail'] as Map?;         │ │
+│  │                                                                   │ │
+│  │         // Now you have the annotation data!                     │ │
+│  │         // You can:                                              │ │
+│  │         // 1. Show an alert/dialog with the note                │ │
+│  │         // 2. Save to database                                   │ │
+│  │         // 3. Trigger analytics                                  │ │
+│  │         // 4. Update UI state                                    │ │
+│  │         // 5. Anything else!                                     │ │
+│  │                                                                   │ │
+│  │         _showAnnotationNote(value);                              │ │
+│  │     },                                                           │ │
+│  │ )                                                                │ │
+│  └───────────────────────────────────────────────────────────────────┘ │
+│                                                                         │
+│  This is where you implement your business logic:                      │
+│  • Handle annotation display                                          │
+│  • Save user interactions                                             │
+│  • Update app state                                                   │
+│  • Trigger other features                                             │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+
+=============================================================================
+  DATA TRANSFORMATION THROUGH LAYERS
+=============================================================================
+
+Foliate-JS Event
+  ↓
+  event: CustomEvent
+  event.type: 'show-annotation'
+  event.detail: { value: 'epubcfi(...)' }
+  
+  ↓ (JavaScript Bridge Layer)
+  
+JavaScript Handler Call
+  ↓
+  handler: 'showAnnotation'
+  data: { value: 'epubcfi(...)', detail: {...} }
+  (serialized to JSON)
+  
+  ↓ (InAppWebView Bridge - automatic)
+  
+Dart Callback Receives
+  ↓
+  data: Map<dynamic, dynamic>
+  (needs parsing)
+  
+  ↓ (Handler code processes)
+  
+Dart Callback Passes
+  ↓
+  detail: Map<String, dynamic>
+  (type-safe Dart structure)
+  
+  ↓ (Widget callback receives)
+  
+Your Code Receives
+  ↓
+  detail: Map<String, dynamic>
+  Can access: detail['value'], detail['detail'], etc.
+
+
+=============================================================================
+  KEY NAMING CONVENTIONS
+=============================================================================
+
+Event Name Throughout the Bridge:
+
+┌──────────────────────┬──────────────────────┬─────────────────────────┐
+│  Layer                │  Format              │  Example                │
+├──────────────────────┼──────────────────────┼─────────────────────────┤
+│ Foliate-JS (reader.js)│ kebab-case          │ 'show-annotation'       │
+├──────────────────────┼──────────────────────┼─────────────────────────┤
+│ Bridge (JS)           │ camelCase            │ 'showAnnotation'        │
+├──────────────────────┼──────────────────────┼─────────────────────────┤
+│ Flutter Handler       │ camelCase            │ 'showAnnotation'        │
+├──────────────────────┼──────────────────────┼─────────────────────────┤
+│ Flutter Callback      │ camelCase + on prefix│ onAnnotationEvent       │
+└──────────────────────┴──────────────────────┴─────────────────────────┘
+
+
+=============================================================================
+  ERROR HANDLING FLOW
+=============================================================================
+
+                     ┌─ Event Fires
+                     │
+           ┌─────────▼─────────┐
+           │ Layer 2: Bridge   │
+           │ Catches Error?    │
+           └─────────┬─────────┘
+                     │
+          ┌──────────┴──────────┐
+          │                     │
+    ┌─────▼──────┐        ┌─────▼──────┐
+    │ NO ERROR   │        │ ERROR      │
+    └─────┬──────┘        └─────┬──────┘
+          │                     │
+          │              logToFlutter()
+          │              catch block
+          │
+    ┌─────▼────────────┐
+    │ callHandler()    │
+    └─────┬────────────┘
+          │
+    ┌─────▼────────────┐
+    │ Layer 3: Handler │
+    │ try-catch?       │
+    └─────┬────────────┘
+          │
+    ┌─────▼──────┐
+    │ Parse data │
+    │ Cast types │
+    └─────┬──────┘
+          │
+    ┌─────▼────────────┐
+    │ Call Callback    │
+    │ (if provided)    │
+    └─────┬────────────┘
+          │
+    ┌─────▼──────┐
+    │ Your Code  │
+    │ Runs Logic │
+    └────────────┘
+
+
+=============================================================================
+  DEBUGGING CHECKLIST
+=============================================================================
+
+□ Check Flutter-Bridge.js
+  □ Is event listener registered? (addEventListener call exists?)
+  □ Is logToFlutter() printing? (Check console output)
+  □ Is callHandler() being called?
+  □ Is handler name camelCase?
+  □ Is data being serialized correctly?
+
+□ Check foliate_webview.dart
+  □ Is handler registered? (addJavaScriptHandler exists?)
+  □ Does handler name exactly match callHandler name?
+  □ Is the try-catch working?
+  □ Is the callback being called? (Add debugPrint)
+  □ Is data casting working?
+
+□ Check Your Code
+  □ Is callback provided to FoliateWebView?
+  □ Is callback null-safe? (onAnnotationEvent?.)
+  □ Can you access detail['value'] without errors?
+  □ Is business logic executing?
+
+□ Check Network/Bridge
+  □ Is InAppWebView plugin properly configured?
+  □ Are permissions set correctly?
+  □ Is WebView JavaScript enabled?
+  □ Are there any console errors in DevTools?
+
+
+=============================================================================
+  SUMMARY
+=============================================================================
+
+The event flow is:
+
+  Foliate-JS Event (reader.js)
+    → JavaScript Bridge Listener (flutter-bridge.js)
+    → JavaScript callHandler() call
+    → InAppWebView Bridge (automatic)
+    → Flutter Handler (foliate_webview.dart)
+    → Widget Callback (onAnnotationEvent)
+    → Your Code (reader_screen.dart)
+
+Each layer is responsible for one task. Keep them separate!
+
+Remember: "What fires in foliate-js must be listened in flutter-bridge.js"
+          "What's called in flutter-bridge.js must be handled in foliate_webview.dart"
+          "What's passed to the callback is what your code receives"
+
+
+
+
