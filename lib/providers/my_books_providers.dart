@@ -264,7 +264,85 @@ final sortOrderProvider = StateNotifierProvider<SortOrderNotifier, SortOrder>((r
   return SortOrderNotifier();
 });
 
-// Section collapse states - only one can be expanded at a time
-enum ExpandedSection { continueReading, myBooks, none }
+// Section collapse states - both can be expanded at the same time
+class ExpandedSectionsState {
+  final bool continueReading;
+  final bool myBooks;
 
-final expandedSectionProvider = StateProvider<ExpandedSection>((ref) => ExpandedSection.myBooks);
+  const ExpandedSectionsState({
+    this.continueReading = true,
+    this.myBooks = true,
+  });
+
+  ExpandedSectionsState copyWith({
+    bool? continueReading,
+    bool? myBooks,
+  }) {
+    return ExpandedSectionsState(
+      continueReading: continueReading ?? this.continueReading,
+      myBooks: myBooks ?? this.myBooks,
+    );
+  }
+}
+
+// Expanded Sections State Notifier with persistence
+class ExpandedSectionsNotifier extends StateNotifier<ExpandedSectionsState> {
+  static const String _continueReadingKey = 'expanded_section_continue_reading';
+  static const String _myBooksKey = 'expanded_section_my_books';
+
+  ExpandedSectionsNotifier() : super(const ExpandedSectionsState()) {
+    _loadExpandedSections();
+  }
+
+  Future<void> _loadExpandedSections() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final continueReading = prefs.getBool(_continueReadingKey) ?? true;
+      final myBooks = prefs.getBool(_myBooksKey) ?? true;
+      state = ExpandedSectionsState(
+        continueReading: continueReading,
+        myBooks: myBooks,
+      );
+    } catch (e) {
+      logger.error('ExpandedSections', 'Error loading expanded sections', e);
+    }
+  }
+
+  Future<void> setContinueReading(bool expanded) async {
+    state = state.copyWith(continueReading: expanded);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_continueReadingKey, expanded);
+    } catch (e) {
+      logger.error('ExpandedSections', 'Error saving continue reading state', e);
+    }
+  }
+
+  Future<void> setMyBooks(bool expanded) async {
+    state = state.copyWith(myBooks: expanded);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_myBooksKey, expanded);
+    } catch (e) {
+      logger.error('ExpandedSections', 'Error saving my books state', e);
+    }
+  }
+
+  Future<void> setBoth(bool expanded) async {
+    state = state.copyWith(
+      continueReading: expanded,
+      myBooks: expanded,
+    );
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_continueReadingKey, expanded);
+      await prefs.setBool(_myBooksKey, expanded);
+    } catch (e) {
+      logger.error('ExpandedSections', 'Error saving both sections state', e);
+    }
+  }
+}
+
+final expandedSectionsProvider = StateNotifierProvider<ExpandedSectionsNotifier, ExpandedSectionsState>((ref) {
+  return ExpandedSectionsNotifier();
+});

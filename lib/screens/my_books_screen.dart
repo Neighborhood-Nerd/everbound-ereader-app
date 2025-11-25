@@ -469,6 +469,10 @@ class _MyBooksScreenState extends ConsumerState<MyBooksScreen> {
         controller: _searchController,
         onChanged: (value) {
           ref.read(searchQueryProvider.notifier).state = value;
+          // Auto-expand both sections when searching
+          if (value.isNotEmpty) {
+            ref.read(expandedSectionsProvider.notifier).setBoth(true);
+          }
         },
         decoration: InputDecoration(
           hintText: 'Search by title or author',
@@ -978,8 +982,8 @@ class _MyBooksScreenState extends ConsumerState<MyBooksScreen> {
       readingSettings.selectedThemeName,
     );
     final variant = selectedTheme.getVariant(readingSettings.isDarkMode);
-    final expandedSection = ref.watch(expandedSectionProvider);
-    final isCollapsed = expandedSection != ExpandedSection.continueReading;
+    final expandedSections = ref.watch(expandedSectionsProvider);
+    final isCollapsed = !expandedSections.continueReading;
     final searchQuery = ref.watch(searchQueryProvider);
 
     // Get books with reading progress and filter by search query
@@ -1018,9 +1022,7 @@ class _MyBooksScreenState extends ConsumerState<MyBooksScreen> {
             splashColor: variant.backgroundColor,
             highlightColor: variant.backgroundColor,
             onTap: () {
-              ref.read(expandedSectionProvider.notifier).state = isCollapsed
-                  ? ExpandedSection.continueReading
-                  : ExpandedSection.none;
+              ref.read(expandedSectionsProvider.notifier).setContinueReading(!expandedSections.continueReading);
             },
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
@@ -1084,8 +1086,8 @@ class _MyBooksScreenState extends ConsumerState<MyBooksScreen> {
     ViewMode viewMode,
     ThemeVariant variant,
   ) {
-    final expandedSection = ref.watch(expandedSectionProvider);
-    final isCollapsed = expandedSection != ExpandedSection.myBooks;
+    final expandedSections = ref.watch(expandedSectionsProvider);
+    final isCollapsed = !expandedSections.myBooks;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1096,9 +1098,7 @@ class _MyBooksScreenState extends ConsumerState<MyBooksScreen> {
             splashColor: variant.backgroundColor,
             highlightColor: variant.backgroundColor,
             onTap: () {
-              ref.read(expandedSectionProvider.notifier).state = isCollapsed
-                  ? ExpandedSection.myBooks
-                  : ExpandedSection.none;
+              ref.read(expandedSectionsProvider.notifier).setMyBooks(!expandedSections.myBooks);
             },
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
