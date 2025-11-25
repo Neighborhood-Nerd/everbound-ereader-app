@@ -50,7 +50,8 @@ class BookImportService {
   }
 
   /// Import an EPUB file to cache and extract metadata
-  Future<LocalBook> importEpubFile(String sourcePath) async {
+  /// [fileSourceId] is the ID of the file source this book is being imported from
+  Future<LocalBook> importEpubFile(String sourcePath, {int? fileSourceId}) async {
     try {
       final sourceFile = io.File(sourcePath);
       if (!await sourceFile.exists()) {
@@ -146,6 +147,7 @@ class BookImportService {
         description: metadata['description'],
         rating: metadata['rating'],
         ratingsCount: metadata['ratingsCount'],
+        fileSourceId: fileSourceId,
       );
 
       // Save to database

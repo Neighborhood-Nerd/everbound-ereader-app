@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:io' as io;
+import 'logger_service.dart';
+
+const String _permissionsTag = 'PermissionsService';
 
 class PermissionsService {
   static final PermissionsService instance = PermissionsService._internal();
@@ -30,17 +33,24 @@ class PermissionsService {
   /// Check and request storage permissions before allowing folder selection
   /// Returns true if permission is granted, false otherwise
   Future<bool> checkAndRequestStoragePermissions(BuildContext context) async {
+    logger.info(_permissionsTag, 'Checking storage permissions...');
+    
     if (!io.Platform.isAndroid) {
+      logger.info(_permissionsTag, 'Not Android platform, skipping permission check');
       return true;
     }
 
     try {
       // For Android 11+ (API 30+), check MANAGE_EXTERNAL_STORAGE first
       try {
+        logger.info(_permissionsTag, 'Checking MANAGE_EXTERNAL_STORAGE permission...');
         final manageStorageStatus =
             await Permission.manageExternalStorage.status;
+        
+        logger.info(_permissionsTag, 'MANAGE_EXTERNAL_STORAGE status: ${manageStorageStatus.toString()}');
 
         if (!manageStorageStatus.isGranted) {
+          logger.warning(_permissionsTag, 'MANAGE_EXTERNAL_STORAGE not granted, showing dialog');
           final shouldOpenSettings = await _showAndroid11PermissionDialog(
             context,
           );
@@ -49,15 +59,38 @@ class PermissionsService {
             return false;
           }
 
-          await Future.delayed(const Duration(milliseconds: 500));
-          final newStatus = await Permission.manageExternalStorage.status;
+          // Open settings
+          logger.info(_permissionsTag, 'Opening storage permission settings...');
+          await openStoragePermissionSettings();
+          
+          // Wait for user to return from settings and re-check permission
+          // Poll for permission status with a reasonable timeout
+          logger.info(_permissionsTag, 'Waiting for user to return from settings and grant permission...');
+          bool permissionGranted = false;
+          const maxWaitTime = Duration(seconds: 30);
+          const checkInterval = Duration(milliseconds: 500);
+          final startTime = DateTime.now();
+          int checkCount = 0;
+          
+          while (DateTime.now().difference(startTime) < maxWaitTime) {
+            await Future.delayed(checkInterval);
+            checkCount++;
+            final newStatus = await Permission.manageExternalStorage.status;
+            logger.debug(_permissionsTag, 'Permission check #$checkCount: ${newStatus.toString()}');
+            if (newStatus.isGranted) {
+              logger.info(_permissionsTag, 'MANAGE_EXTERNAL_STORAGE granted after $checkCount checks!');
+              permissionGranted = true;
+              break;
+            }
+          }
 
-          if (!newStatus.isGranted) {
+          if (!permissionGranted) {
+            logger.warning(_permissionsTag, 'MANAGE_EXTERNAL_STORAGE still not granted after $checkCount checks');
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text(
-                    'Please grant "All files access" in Settings, then try again.',
+                    'Please grant "All files access" in Settings, then tap refresh again.',
                   ),
                   backgroundColor: Colors.orange,
                   duration: Duration(seconds: 4),
@@ -68,14 +101,18 @@ class PermissionsService {
           }
         }
 
+        logger.info(_permissionsTag, 'Storage permissions granted successfully');
         return true;
       } catch (e) {
         // If manageExternalStorage is not available, we're on Android 10 or below
+        logger.info(_permissionsTag, 'MANAGE_EXTERNAL_STORAGE not available (Android 10 or below), checking READ_EXTERNAL_STORAGE');
         // Fall through to check READ_EXTERNAL_STORAGE
       }
 
       // For Android 10 and below, check READ_EXTERNAL_STORAGE
+      logger.info(_permissionsTag, 'Checking READ_EXTERNAL_STORAGE permission...');
       final readStorageStatus = await Permission.storage.status;
+      logger.info(_permissionsTag, 'READ_EXTERNAL_STORAGE status: ${readStorageStatus.toString()}');
 
       if (!readStorageStatus.isGranted) {
         final readResult = await Permission.storage.request();

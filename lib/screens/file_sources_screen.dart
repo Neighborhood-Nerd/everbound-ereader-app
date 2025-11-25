@@ -8,12 +8,12 @@ import '../colors.dart';
 import '../models/file_source_model.dart';
 import '../services/local_database_service.dart';
 import '../services/permissions_service.dart';
+import '../services/ios_bookmark_service.dart';
+import '../services/logger_service.dart';
 import '../providers/file_source_providers.dart';
 import '../providers/my_books_providers.dart';
-import '../services/logger_service.dart';
 import '../widgets/webdav_browser_widget.dart';
-
-const String _tag = 'FileSourcesScreen';
+import 'dart:io' as io;
 
 class FileSourcesScreen extends ConsumerStatefulWidget {
   const FileSourcesScreen({super.key});
@@ -66,8 +66,38 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
         return;
       }
 
-      final String? selectedDirectory = await FilePicker.platform
-          .getDirectoryPath();
+      String? selectedDirectory;
+      try {
+        selectedDirectory = await FilePicker.platform.getDirectoryPath();
+      } catch (e) {
+        // Handle iOS-specific errors
+        if (mounted) {
+          String errorMessage = 'Unable to access folder';
+          if (e.toString().contains('Operation not permitted')) {
+            errorMessage =
+                'iOS requires you to select a folder through the file picker. '
+                'Please try again and select a folder when prompted.';
+          } else {
+            errorMessage = 'Error accessing folder: ${e.toString()}';
+          }
+
+          await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Folder Access Error'),
+              content: Text(errorMessage),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
+
       if (selectedDirectory == null) return;
 
       // Show dialog to enter name
@@ -103,18 +133,23 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
         final dbService = LocalDatabaseService.instance;
         await dbService.initialize();
 
+        // On iOS, create a security-scoped bookmark
+        String? bookmarkData;
+        if (io.Platform.isIOS) {
+          bookmarkData = await IOSBookmarkService.instance.createBookmark(
+            selectedDirectory,
+          );
+        }
+
         final source = FileSource(
           name: nameController.text,
           type: FileSourceType.local,
           localPath: selectedDirectory,
+          bookmarkData: bookmarkData,
           createdAt: DateTime.now(),
         );
 
         final sourceId = dbService.insertFileSource(source);
-        logger.info(
-          'FileSourcesScreen',
-          'Added local source: ${source.name} (ID: $sourceId, path: ${source.localPath})',
-        );
         ref.read(fileSourcesRefreshProvider.notifier).state++;
 
         if (mounted) {
@@ -132,7 +167,6 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
         }
       }
     } catch (e) {
-      logger.error(_tag, 'Error adding local folder', e);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -151,22 +185,10 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
     String password,
   ) async {
     try {
-      logger.verbose(
-        'FileSourcesScreen',
-        'Testing WebDAV connection to: $url (username: $username)',
-      );
       final client = newClient(url, user: username, password: password);
       await client.readDir('').timeout(const Duration(seconds: 10));
-      logger.info(
-        'FileSourcesScreen',
-        'WebDAV connection test successful: $url',
-      );
       return true;
     } catch (e) {
-      logger.warning(
-        'FileSourcesScreen',
-        'WebDAV connection test failed: $url - $e',
-      );
       return false;
     }
   }
@@ -350,10 +372,6 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
         );
 
         final sourceId = dbService.insertFileSource(source);
-        logger.info(
-          'FileSourcesScreen',
-          'Added WebDAV source: ${source.name} (ID: $sourceId, URL: ${source.url}, path: ${source.selectedPath})',
-        );
         ref.read(fileSourcesRefreshProvider.notifier).state++;
 
         if (mounted) {
@@ -370,7 +388,6 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
           _scanSingleSource(sourceId);
         }
       } catch (e) {
-        logger.error(_tag, 'Error adding WebDAV source', e);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -415,10 +432,38 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
             const SizedBox(height: 8),
             ElevatedButton.icon(
               onPressed: () async {
-                final String? selectedDirectory = await FilePicker.platform
-                    .getDirectoryPath();
-                if (selectedDirectory != null) {
-                  pathController.text = selectedDirectory;
+                try {
+                  final String? selectedDirectory = await FilePicker.platform
+                      .getDirectoryPath();
+                  if (selectedDirectory != null) {
+                    pathController.text = selectedDirectory;
+                  }
+                } catch (e) {
+                  // Handle iOS-specific errors
+                  if (mounted) {
+                    String errorMessage = 'Unable to access folder';
+                    if (e.toString().contains('Operation not permitted')) {
+                      errorMessage =
+                          'iOS requires you to select a folder through the file picker. '
+                          'Please try again and select a folder when prompted.';
+                    } else {
+                      errorMessage = 'Error accessing folder: ${e.toString()}';
+                    }
+
+                    await showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('Folder Access Error'),
+                        content: Text(errorMessage),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('OK'),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
                 }
               },
               icon: const Icon(Icons.folder_open),
@@ -446,9 +491,18 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
         final dbService = LocalDatabaseService.instance;
         await dbService.initialize();
 
+        // On iOS, create a security-scoped bookmark if path changed
+        String? bookmarkData = source.bookmarkData;
+        if (io.Platform.isIOS && pathController.text != source.localPath) {
+          bookmarkData = await IOSBookmarkService.instance.createBookmark(
+            pathController.text,
+          );
+        }
+
         final updatedSource = source.copyWith(
           name: nameController.text,
           localPath: pathController.text,
+          bookmarkData: bookmarkData,
         );
 
         dbService.updateFileSource(updatedSource);
@@ -662,6 +716,9 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
       // Refresh books list
       ref.read(booksRefreshProvider.notifier).state++;
 
+      // Refresh file sources list to update lastScannedAt and book count
+      ref.read(fileSourcesRefreshProvider.notifier).state++;
+
       if (mounted) {
         // Check if there's a scoped storage error and show permission prompt immediately
         final hasScopedStorageError = result.errors.any(
@@ -700,7 +757,9 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
         }
 
         final message = result.errors.isEmpty
-            ? 'Scan complete: ${result.imported} new book(s) imported from ${result.scanned} file(s)'
+            ? (result.scanned > 0 || result.imported > 0
+                  ? 'Scan complete: ${result.imported} new book(s) imported from ${result.scanned} file(s)'
+                  : 'Scan complete: No EPUB files found in the selected folder(s)')
             : 'Scan complete with ${result.errors.length} error(s): ${result.imported} new book(s) imported';
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -785,8 +844,32 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
       return;
     }
 
+    // Check permissions BEFORE scanning (Android only)
+    if (io.Platform.isAndroid) {
+      logger.info('FileSourcesScreen', 'Checking permissions before scan...');
+      final hasPermission = await _permissionsService
+          .checkAndRequestStoragePermissions(context);
+      logger.info(
+        'FileSourcesScreen',
+        'Permission check result: $hasPermission',
+      );
+      if (!hasPermission) {
+        logger.warning(
+          'FileSourcesScreen',
+          'Permission not granted, aborting scan',
+        );
+        // User didn't grant permission or cancelled
+        return;
+      }
+    }
+
     try {
+      logger.info('FileSourcesScreen', 'Starting scan...');
       final result = await ref.read(scanSourcesProvider(true).future);
+      logger.info(
+        'FileSourcesScreen',
+        'Scan complete. Errors: ${result.errors.length}, Scanned: ${result.scanned}, Imported: ${result.imported}',
+      );
 
       // Log errors for debugging
       if (result.errors.isNotEmpty) {}
@@ -832,7 +915,9 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
         }
 
         final message = result.errors.isEmpty
-            ? 'Scan complete: ${result.imported} new book(s) imported from ${result.scanned} file(s)'
+            ? (result.scanned > 0 || result.imported > 0
+                  ? 'Scan complete: ${result.imported} new book(s) imported from ${result.scanned} file(s)'
+                  : 'Scan complete: No EPUB files found in the selected folder(s)')
             : 'Scan complete with ${result.errors.length} error(s): ${result.imported} new book(s) imported';
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -990,6 +1075,12 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
     final sourceProgress = ref.watch(sourceScanProgressProvider);
     final progress = source.id != null ? sourceProgress[source.id] : null;
 
+    // Get book count for this source
+    final dbService = LocalDatabaseService.instance;
+    final bookCount = source.id != null
+        ? dbService.getBookCountForSource(source)
+        : 0;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Slidable(
@@ -1082,7 +1173,34 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(source.type.displayName),
+                  Row(
+                    children: [
+                      Text(source.type.displayName),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: bookCount > 0
+                              ? primaryColor.withOpacity(0.1)
+                              : Colors.grey.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '$bookCount book${bookCount == 1 ? '' : 's'}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: bookCount > 0
+                                ? primaryColor
+                                : Colors.grey[600],
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                   if (source.type == FileSourceType.local &&
                       source.localPath != null)
                     Text(
@@ -1102,6 +1220,11 @@ class _FileSourcesScreenState extends ConsumerState<FileSourcesScreen> {
                     Text(
                       'Last scanned: ${_formatDateTime(source.lastScannedAt!)}',
                       style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                    )
+                  else
+                    Text(
+                      'Never scanned',
+                      style: TextStyle(fontSize: 11, color: Colors.grey[400]),
                     ),
                 ],
               ),

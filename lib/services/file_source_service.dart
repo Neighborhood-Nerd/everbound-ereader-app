@@ -1,9 +1,15 @@
 import 'dart:io' as io;
+import 'dart:async';
 import 'package:path/path.dart' as path;
 import 'package:webdav_client/webdav_client.dart';
+import 'package:security_scoped_resource/security_scoped_resource.dart';
 import '../models/file_source_model.dart';
 import '../services/local_database_service.dart';
 import '../services/book_import_service.dart';
+import '../services/ios_bookmark_service.dart';
+import '../services/logger_service.dart';
+
+const String _fileSourceTag = 'FileSourceService';
 
 class FileSourceService {
   static final FileSourceService instance = FileSourceService._internal();
@@ -66,12 +72,20 @@ class FileSourceService {
       throw Exception('File source not found');
     }
 
+    ScanResult result;
     switch (source.type) {
       case FileSourceType.local:
-        return await _scanLocalSource(source, onProgress: onProgress);
+        result = await _scanLocalSource(source, onProgress: onProgress);
+        break;
       case FileSourceType.webdav:
-        return await _scanWebDavSource(source, onProgress: onProgress);
+        result = await _scanWebDavSource(source, onProgress: onProgress);
+        break;
     }
+
+    // Update last scanned timestamp
+    dbService.updateFileSourceLastScanned(sourceId, DateTime.now());
+
+    return result;
   }
 
   /// Scan local folder recursively for EPUB files
@@ -79,7 +93,37 @@ class FileSourceService {
     FileSource source, {
     Function(int booksFound, int booksImported)? onProgress,
   }) async {
-    if (source.localPath == null || source.localPath!.isEmpty) {
+    logger.info(
+      _fileSourceTag,
+      'Starting scan of local source: ${source.name} (ID: ${source.id})',
+    );
+    logger.info(_fileSourceTag, 'Source path: ${source.localPath}');
+    logger.info(_fileSourceTag, 'Platform: ${io.Platform.operatingSystem}');
+
+    String? directoryPath = source.localPath;
+    bool shouldStopAccessing = false;
+
+    // On iOS, use bookmark to resolve path if available
+    if (io.Platform.isIOS &&
+        source.bookmarkData != null &&
+        source.bookmarkData!.isNotEmpty) {
+      logger.info(_fileSourceTag, 'iOS: Resolving bookmark...');
+      final bookmarkService = IOSBookmarkService.instance;
+
+      // Resolve bookmark to get path
+      final resolvedPath = await bookmarkService.resolveBookmark(
+        source.bookmarkData!,
+      );
+      if (resolvedPath != null) {
+        logger.info(_fileSourceTag, 'iOS: Bookmark resolved to: $resolvedPath');
+        directoryPath = resolvedPath;
+      } else {
+        logger.warning(_fileSourceTag, 'iOS: Failed to resolve bookmark');
+      }
+    }
+
+    if (directoryPath == null || directoryPath.isEmpty) {
+      logger.error(_fileSourceTag, 'Directory path is null or empty');
       return ScanResult(
         scanned: 0,
         imported: 0,
@@ -87,24 +131,117 @@ class FileSourceService {
       );
     }
 
-    final directory = io.Directory(source.localPath!);
+    logger.info(_fileSourceTag, 'Using directory path: $directoryPath');
+    final directory = io.Directory(directoryPath);
 
-    if (!await directory.exists()) {
-      return ScanResult(
-        scanned: 0,
-        imported: 0,
-        errors: ['Directory does not exist: ${source.localPath}'],
-      );
+    // On iOS, start accessing security-scoped resource using the package
+    if (io.Platform.isIOS) {
+      final accessGranted = await SecurityScopedResource.instance
+          .startAccessingSecurityScopedResource(directory);
+      if (!accessGranted) {
+        return ScanResult(
+          scanned: 0,
+          imported: 0,
+          errors: ['Failed to access folder. Please reselect the folder.'],
+        );
+      }
+      shouldStopAccessing = true;
     }
+
+    // On iOS, be more lenient with directory access checks
+    // Security-scoped resources may not be immediately accessible
+    // Let the actual file scanning handle access errors
+    if (!io.Platform.isIOS) {
+      // On non-iOS platforms, do standard validation
+      logger.info(_fileSourceTag, 'Checking if directory exists...');
+      bool directoryExists = false;
+      try {
+        directoryExists = await directory.exists();
+        logger.info(
+          _fileSourceTag,
+          'Directory exists check result: $directoryExists',
+        );
+      } catch (e, stackTrace) {
+        logger.error(
+          _fileSourceTag,
+          'Error checking directory existence',
+          e,
+          stackTrace,
+        );
+        return ScanResult(
+          scanned: 0,
+          imported: 0,
+          errors: ['Unable to check directory: ${source.localPath}'],
+        );
+      }
+
+      if (!directoryExists) {
+        logger.warning(
+          _fileSourceTag,
+          'Directory does not exist: ${source.localPath}',
+        );
+        String errorMsg = 'Directory does not exist: ${source.localPath}';
+        if (source.localPath!.contains('com~apple~CloudDocs')) {
+          errorMsg =
+              'iCloud Drive folder not found. '
+              'The folder may not be synced to this device. '
+              'Please open the folder in the Files app to sync it, then try again.';
+        }
+        return ScanResult(scanned: 0, imported: 0, errors: [errorMsg]);
+      }
+
+      // On Android, check permissions before attempting to list
+      if (io.Platform.isAndroid) {
+        logger.info(
+          _fileSourceTag,
+          'Android: Checking permissions before listing directory...',
+        );
+        try {
+          // Try to list the directory to verify access
+          final testList = directory.listSync();
+          logger.info(
+            _fileSourceTag,
+            'Android: Successfully listed directory, found ${testList.length} items',
+          );
+        } catch (e, stackTrace) {
+          logger.error(
+            _fileSourceTag,
+            'Android: Failed to list directory - permission issue?',
+            e,
+            stackTrace,
+          );
+          // Continue anyway - the actual scan will handle the error
+        }
+      }
+    }
+    // On iOS, skip strict validation and let file scanning handle errors
+    // This allows security-scoped resources to be accessed properly
 
     final epubFiles = <String>[];
     try {
+      logger.info(
+        _fileSourceTag,
+        'Starting to find EPUB files in directory...',
+      );
       await _findEpubFiles(directory, epubFiles);
-    } catch (e) {
+      logger.info(_fileSourceTag, 'Found ${epubFiles.length} EPUB files');
+    } catch (e, stackTrace) {
+      logger.error(_fileSourceTag, 'Error finding EPUB files', e, stackTrace);
       String errorMessage = e.toString();
+      logger.error(_fileSourceTag, 'Error message: $errorMessage');
 
-      // If the error contains our detailed scoped storage message, extract it
-      if (e.toString().contains('scoped storage') ||
+      // iOS-specific: Handle security-scoped resource access issues
+      if (io.Platform.isIOS &&
+          (e.toString().contains('PathAccessException') ||
+              e.toString().contains('Directory listing failed') ||
+              e.toString().contains('Operation not permitted'))) {
+        errorMessage =
+            'iOS folder access expired. '
+            'On iOS, folder access is temporary. Please edit this source and reselect the folder, '
+            'then try scanning again. Alternatively, you can delete and re-add the folder source.';
+      }
+      // Android-specific: Handle scoped storage errors
+      else if (e.toString().contains('scoped storage') ||
           e.toString().contains(
             'Cannot access directory contents due to Android',
           )) {
@@ -144,6 +281,13 @@ class FileSourceService {
             .replaceAll(RegExp(r'^Exception:\s*'), '')
             .replaceAll(RegExp(r'^Cannot read directory[^:]*:\s*'), '');
       }
+
+      // Stop accessing security-scoped resource on iOS even on error
+      if (shouldStopAccessing) {
+        await SecurityScopedResource.instance
+            .stopAccessingSecurityScopedResource(directory);
+      }
+
       return ScanResult(scanned: 0, imported: 0, errors: [errorMessage]);
     }
 
@@ -151,36 +295,48 @@ class FileSourceService {
     onProgress?.call(epubFiles.length, 0);
 
     if (epubFiles.isEmpty) {
-      // Check if directory is actually readable by trying to list it
-      try {
-        final testList = directory.list();
-        final hasItems = await testList.isEmpty;
-        if (hasItems) {
-          return ScanResult(
-            scanned: 0,
-            imported: 0,
-            errors: [
-              'No EPUB files found in directory. The directory appears to be empty or contains no .epub files.',
-            ],
-          );
-        }
-      } catch (e) {
-        return ScanResult(
-          scanned: 0,
-          imported: 0,
-          errors: [
-            'Cannot access directory contents. Please check file permissions. Error: $e',
-          ],
-        );
+      logger.info(
+        _fileSourceTag,
+        'No EPUB files found in directory. This is normal if the directory is empty or contains no .epub files.',
+      );
+
+      // Stop accessing security-scoped resource on iOS
+      if (shouldStopAccessing) {
+        await SecurityScopedResource.instance
+            .stopAccessingSecurityScopedResource(directory);
       }
+
+      // Return successful scan with 0 files - this is not an error
       return ScanResult(
         scanned: 0,
         imported: 0,
-        errors: ['No EPUB files found in directory'],
+        errors: [], // No errors - directory is just empty
       );
     }
 
-    return await _importFiles(epubFiles, source.name, onProgress: onProgress);
+    try {
+      final result = await _importFiles(
+        epubFiles,
+        source.name,
+        fileSourceId: source.id,
+        onProgress: onProgress,
+      );
+
+      // Stop accessing security-scoped resource on iOS
+      if (shouldStopAccessing) {
+        await SecurityScopedResource.instance
+            .stopAccessingSecurityScopedResource(directory);
+      }
+
+      return result;
+    } catch (e) {
+      // Stop accessing security-scoped resource on iOS even on error
+      if (shouldStopAccessing) {
+        await SecurityScopedResource.instance
+            .stopAccessingSecurityScopedResource(directory);
+      }
+      rethrow;
+    }
   }
 
   /// Scan WebDAV folder recursively for EPUB files
@@ -242,58 +398,183 @@ class FileSourceService {
     io.Directory directory,
     List<String> epubFiles,
   ) async {
+    logger.info(
+      _fileSourceTag,
+      '_findEpubFiles: Starting scan of ${directory.path}',
+    );
+
     try {
-      if (!await directory.exists()) {
+      logger.info(
+        _fileSourceTag,
+        '_findEpubFiles: Checking if directory exists...',
+      );
+      final exists = await directory.exists();
+      logger.info(_fileSourceTag, '_findEpubFiles: Directory exists: $exists');
+
+      if (!exists) {
+        logger.error(
+          _fileSourceTag,
+          '_findEpubFiles: Directory does not exist: ${directory.path}',
+        );
         throw Exception(
           'Directory does not exist or is not accessible: ${directory.path}',
         );
       }
 
+      logger.info(
+        _fileSourceTag,
+        '_findEpubFiles: Attempting to list directory contents...',
+      );
       final testList = directory.list();
-      final items = await testList.toList();
+      logger.info(
+        _fileSourceTag,
+        '_findEpubFiles: Got directory list stream, converting to list...',
+      );
 
+      List<io.FileSystemEntity> items;
+      try {
+        items = await testList.toList();
+        logger.info(
+          _fileSourceTag,
+          '_findEpubFiles: Successfully listed directory, found ${items.length} items',
+        );
+      } catch (e, stackTrace) {
+        logger.error(
+          _fileSourceTag,
+          '_findEpubFiles: Failed to list directory contents',
+          e,
+          stackTrace,
+        );
+        rethrow;
+      }
+
+      // If directory list is empty, it could be:
+      // 1. Directory is actually empty (legitimate)
+      // 2. Permission issue (can't see contents)
+      // On Android with MANAGE_EXTERNAL_STORAGE, we should be able to list even if empty
+      // So if we successfully listed (got 0 items), the directory is likely just empty
+      // Only throw permission error if listing itself fails, not if it returns empty
       if (items.isEmpty) {
-        try {
-          final testPath = '${directory.path}/.test_access_check';
-          final testFile = io.File(testPath);
-          final parentExists = await testFile.parent.exists();
+        logger.info(
+          _fileSourceTag,
+          '_findEpubFiles: Directory list is empty. This could mean the directory is empty or access is restricted.',
+        );
 
-          if (parentExists) {
-            throw Exception(
-              'Cannot access directory contents due to Android scoped storage restrictions. '
-              'Please try one of these solutions:\n'
-              '1. Grant "All files access" permission in Android Settings > Apps > Everbound > Permissions\n'
-              '2. Use a directory in the app\'s own storage (Android/data/com.neighborhoodnerd.everbound)\n'
-              '3. Select the directory again using the file picker to refresh permissions',
-            );
+        // On Android, try to verify by attempting recursive scan
+        // If recursive scan fails with permission error, then we know it's a permission issue
+        // Otherwise, the directory is likely just empty
+        if (io.Platform.isAndroid) {
+          logger.info(
+            _fileSourceTag,
+            '_findEpubFiles: Attempting recursive scan to verify access...',
+          );
+          // Don't throw error here - let the recursive scan below handle it
+          // If recursive scan works (even if finds nothing), directory is just empty
+          // If recursive scan fails with permission error, we'll catch it below
+        } else {
+          logger.info(
+            _fileSourceTag,
+            '_findEpubFiles: Directory appears to be empty (non-Android platform)',
+          );
+        }
+      }
+
+      logger.info(
+        _fileSourceTag,
+        '_findEpubFiles: Attempting recursive scan...',
+      );
+      try {
+        int fileCount = 0;
+        await for (final entity in directory.list(recursive: true)) {
+          fileCount++;
+          if (entity is io.File) {
+            final fileName = entity.path.toLowerCase();
+            if (fileName.endsWith('.epub')) {
+              logger.debug(
+                _fileSourceTag,
+                '_findEpubFiles: Found EPUB: ${entity.path}',
+              );
+              epubFiles.add(entity.path);
+            }
           }
-        } catch (e) {
-          if (e.toString().contains('scoped storage')) {
+        }
+        logger.info(
+          _fileSourceTag,
+          '_findEpubFiles: Recursive scan complete, checked $fileCount files, found ${epubFiles.length} EPUBs',
+        );
+      } catch (e, stackTrace) {
+        // Check if this is a permission error
+        final errorStr = e.toString();
+        if (errorStr.contains('Permission') ||
+            errorStr.contains('permission') ||
+            errorStr.contains('denied') ||
+            errorStr.contains('scoped storage') ||
+            errorStr.contains('Operation not permitted')) {
+          logger.error(
+            _fileSourceTag,
+            '_findEpubFiles: Permission error during recursive scan',
+            e,
+            stackTrace,
+          );
+          // Re-throw permission errors
+          rethrow;
+        }
+
+        // For other errors, try non-recursive scan as fallback
+        logger.warning(
+          _fileSourceTag,
+          '_findEpubFiles: Recursive scan failed (non-permission error), trying non-recursive: $e',
+        );
+        try {
+          await for (final entity in directory.list()) {
+            if (entity is io.File) {
+              final fileName = entity.path.toLowerCase();
+              if (fileName.endsWith('.epub')) {
+                logger.debug(
+                  _fileSourceTag,
+                  '_findEpubFiles: Found EPUB (non-recursive): ${entity.path}',
+                );
+                epubFiles.add(entity.path);
+              }
+            }
+          }
+          logger.info(
+            _fileSourceTag,
+            '_findEpubFiles: Non-recursive scan complete, found ${epubFiles.length} EPUBs',
+          );
+        } catch (e2, stackTrace2) {
+          // If non-recursive also fails, check if it's a permission error
+          final errorStr2 = e2.toString();
+          if (errorStr2.contains('Permission') ||
+              errorStr2.contains('permission') ||
+              errorStr2.contains('denied') ||
+              errorStr2.contains('scoped storage') ||
+              errorStr2.contains('Operation not permitted')) {
+            logger.error(
+              _fileSourceTag,
+              '_findEpubFiles: Permission error during non-recursive scan',
+              e2,
+              stackTrace2,
+            );
             rethrow;
           }
+          // Other errors - log and rethrow
+          logger.error(
+            _fileSourceTag,
+            '_findEpubFiles: Non-recursive scan also failed',
+            e2,
+            stackTrace2,
+          );
+          rethrow;
         }
       }
-
-      try {
-        await for (final entity in directory.list(recursive: true)) {
-          if (entity is io.File) {
-            final fileName = entity.path.toLowerCase();
-            if (fileName.endsWith('.epub')) {
-              epubFiles.add(entity.path);
-            }
-          }
-        }
-      } catch (e) {
-        await for (final entity in directory.list()) {
-          if (entity is io.File) {
-            final fileName = entity.path.toLowerCase();
-            if (fileName.endsWith('.epub')) {
-              epubFiles.add(entity.path);
-            }
-          }
-        }
-      }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      logger.error(
+        _fileSourceTag,
+        '_findEpubFiles: Error during file search',
+        e,
+        stackTrace,
+      );
       rethrow;
     }
   }
@@ -339,6 +620,7 @@ class FileSourceService {
   Future<ScanResult> _importFiles(
     List<String> epubFiles,
     String sourceName, {
+    int? fileSourceId,
     Function(int booksFound, int booksImported)? onProgress,
   }) async {
     final dbService = LocalDatabaseService.instance;
@@ -370,7 +652,10 @@ class FileSourceService {
           continue;
         }
 
-        await importService.importEpubFile(filePath);
+        await importService.importEpubFile(
+          filePath,
+          fileSourceId: fileSourceId,
+        );
         imported++;
         onProgress?.call(epubFiles.length, imported);
       } catch (e) {
@@ -443,7 +728,10 @@ class FileSourceService {
         }
 
         // Import the book
-        await importService.importEpubFile(localFilePath);
+        await importService.importEpubFile(
+          localFilePath,
+          fileSourceId: source.id,
+        );
 
         // Clean up downloaded file after import (it's been copied to cache)
         if (await localFile.exists()) {
