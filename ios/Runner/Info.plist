@@ -52,5 +52,7 @@
 		</dict>
 		<key>UIStatusBarHidden</key>
 		<false/>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>Everbound needs access to your photo library to import EPUB files and cover images for your books.</string>
 	</dict>
 </plist>
