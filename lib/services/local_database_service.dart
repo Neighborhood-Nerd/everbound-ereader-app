@@ -19,10 +19,13 @@ class LocalBook {
   final DateTime importedAt;
   final double? progressPercentage;
   final String? lastReadStatus;
-  final String? lastReadCfi; // CFI (Canonical Fragment Identifier) for resuming reading
-  final String? lastReadXPath; // XPath for resuming reading (from KOReader/Kindle sync)
+  final String?
+  lastReadCfi; // CFI (Canonical Fragment Identifier) for resuming reading
+  final String?
+  lastReadXPath; // XPath for resuming reading (from KOReader/Kindle sync)
   final DateTime? lastReadAt; // Timestamp of when the book was last read
-  final String? partialMd5Checksum; // Partial MD5 checksum for KOReader sync (computed on import)
+  final String?
+  partialMd5Checksum; // Partial MD5 checksum for KOReader sync (computed on import)
   // Additional metadata from API
   final String? publisher;
   final String? publishedDate;
@@ -33,7 +36,9 @@ class LocalBook {
   final String? description;
   final String? rating;
   final String? ratingsCount;
-  final bool? syncEnabled; // Whether sync is enabled for this book (null = true by default for existing books)
+  final bool?
+  syncEnabled; // Whether sync is enabled for this book (null = true by default for existing books)
+  final int? fileSourceId; // ID of the file source this book was imported from
 
   LocalBook({
     this.id,
@@ -56,10 +61,11 @@ class LocalBook {
     this.pageCount,
     this.language,
     this.description,
-      this.rating,
-      this.ratingsCount,
-      this.syncEnabled,
-    });
+    this.rating,
+    this.ratingsCount,
+    this.syncEnabled,
+    this.fileSourceId,
+  });
 
   Map<String, dynamic> toMap() {
     return {
@@ -86,6 +92,7 @@ class LocalBook {
       'rating': rating,
       'ratings_count': ratingsCount,
       'sync_enabled': syncEnabled != null ? (syncEnabled! ? 1 : 0) : null,
+      'file_source_id': fileSourceId,
     };
   }
 
@@ -97,8 +104,12 @@ class LocalBook {
       filePath: map['file_path'] as String,
       originalFileName: map['original_file_name'] as String,
       coverImagePath: map['cover_image_path'] as String?,
-      importedAt: DateTime.fromMillisecondsSinceEpoch(map['imported_at'] as int),
-      progressPercentage: map['progress_percentage'] != null ? (map['progress_percentage'] as num).toDouble() : null,
+      importedAt: DateTime.fromMillisecondsSinceEpoch(
+        map['imported_at'] as int,
+      ),
+      progressPercentage: map['progress_percentage'] != null
+          ? (map['progress_percentage'] as num).toDouble()
+          : null,
       lastReadStatus: map['last_read_status'] as String?,
       lastReadCfi: map['last_read_cfi'] as String?,
       lastReadXPath: map['last_read_xpath'] as String?,
@@ -115,7 +126,10 @@ class LocalBook {
       description: map['description'] as String?,
       rating: map['rating'] as String?,
       ratingsCount: map['ratings_count'] as String?,
-      syncEnabled: map['sync_enabled'] != null ? (map['sync_enabled'] as int) != 0 : null,
+      syncEnabled: map['sync_enabled'] != null
+          ? (map['sync_enabled'] as int) != 0
+          : null,
+      fileSourceId: map['file_source_id'] as int?,
     );
   }
 
@@ -135,37 +149,69 @@ class LocalBook {
       coverImagePath: getIndexOrNull('cover_image_path') != null
           ? row[getIndexOrNull('cover_image_path')!] as String?
           : null,
-      importedAt: DateTime.fromMillisecondsSinceEpoch(row[getIndex('imported_at')] as int),
+      importedAt: DateTime.fromMillisecondsSinceEpoch(
+        row[getIndex('imported_at')] as int,
+      ),
       progressPercentage:
-          getIndexOrNull('progress_percentage') != null && row[getIndexOrNull('progress_percentage')!] != null
+          getIndexOrNull('progress_percentage') != null &&
+              row[getIndexOrNull('progress_percentage')!] != null
           ? (row[getIndexOrNull('progress_percentage')!] as num).toDouble()
           : null,
       lastReadStatus: getIndexOrNull('last_read_status') != null
           ? row[getIndexOrNull('last_read_status')!] as String?
           : null,
-      lastReadCfi: getIndexOrNull('last_read_cfi') != null ? row[getIndexOrNull('last_read_cfi')!] as String? : null,
+      lastReadCfi: getIndexOrNull('last_read_cfi') != null
+          ? row[getIndexOrNull('last_read_cfi')!] as String?
+          : null,
       lastReadXPath: getIndexOrNull('last_read_xpath') != null
           ? row[getIndexOrNull('last_read_xpath')!] as String?
           : null,
-      lastReadAt: getIndexOrNull('last_read_at') != null && row[getIndexOrNull('last_read_at')!] != null
-          ? DateTime.fromMillisecondsSinceEpoch(row[getIndexOrNull('last_read_at')!] as int)
+      lastReadAt:
+          getIndexOrNull('last_read_at') != null &&
+              row[getIndexOrNull('last_read_at')!] != null
+          ? DateTime.fromMillisecondsSinceEpoch(
+              row[getIndexOrNull('last_read_at')!] as int,
+            )
           : null,
       partialMd5Checksum: getIndexOrNull('partial_md5_checksum') != null
           ? row[getIndexOrNull('partial_md5_checksum')!] as String?
           : null,
-      publisher: getIndexOrNull('publisher') != null ? row[getIndexOrNull('publisher')!] as String? : null,
+      publisher: getIndexOrNull('publisher') != null
+          ? row[getIndexOrNull('publisher')!] as String?
+          : null,
       publishedDate: getIndexOrNull('published_date') != null
           ? row[getIndexOrNull('published_date')!] as String?
           : null,
-      genre: getIndexOrNull('genre') != null ? row[getIndexOrNull('genre')!] as String? : null,
-      isbn: getIndexOrNull('isbn') != null ? row[getIndexOrNull('isbn')!] as String? : null,
-      pageCount: getIndexOrNull('page_count') != null ? row[getIndexOrNull('page_count')!] as String? : null,
-      language: getIndexOrNull('language') != null ? row[getIndexOrNull('language')!] as String? : null,
-      description: getIndexOrNull('description') != null ? row[getIndexOrNull('description')!] as String? : null,
-      rating: getIndexOrNull('rating') != null ? row[getIndexOrNull('rating')!] as String? : null,
-      ratingsCount: getIndexOrNull('ratings_count') != null ? row[getIndexOrNull('ratings_count')!] as String? : null,
-      syncEnabled: getIndexOrNull('sync_enabled') != null && row[getIndexOrNull('sync_enabled')!] != null
+      genre: getIndexOrNull('genre') != null
+          ? row[getIndexOrNull('genre')!] as String?
+          : null,
+      isbn: getIndexOrNull('isbn') != null
+          ? row[getIndexOrNull('isbn')!] as String?
+          : null,
+      pageCount: getIndexOrNull('page_count') != null
+          ? row[getIndexOrNull('page_count')!] as String?
+          : null,
+      language: getIndexOrNull('language') != null
+          ? row[getIndexOrNull('language')!] as String?
+          : null,
+      description: getIndexOrNull('description') != null
+          ? row[getIndexOrNull('description')!] as String?
+          : null,
+      rating: getIndexOrNull('rating') != null
+          ? row[getIndexOrNull('rating')!] as String?
+          : null,
+      ratingsCount: getIndexOrNull('ratings_count') != null
+          ? row[getIndexOrNull('ratings_count')!] as String?
+          : null,
+      syncEnabled:
+          getIndexOrNull('sync_enabled') != null &&
+              row[getIndexOrNull('sync_enabled')!] != null
           ? (row[getIndexOrNull('sync_enabled')!] as int) != 0
+          : null,
+      fileSourceId:
+          getIndexOrNull('file_source_id') != null &&
+              row[getIndexOrNull('file_source_id')!] != null
+          ? row[getIndexOrNull('file_source_id')!] as int?
           : null,
     );
   }
@@ -194,6 +240,7 @@ class LocalBook {
     String? rating,
     String? ratingsCount,
     bool? syncEnabled,
+    int? fileSourceId,
   }) {
     return LocalBook(
       id: id ?? this.id,
@@ -218,6 +265,7 @@ class LocalBook {
       rating: rating ?? this.rating,
       ratingsCount: ratingsCount ?? this.ratingsCount,
       syncEnabled: syncEnabled ?? this.syncEnabled,
+      fileSourceId: fileSourceId ?? this.fileSourceId,
     );
   }
 }
@@ -246,7 +294,10 @@ class LocalDatabaseService {
       _databasePath = path.join(dbDir.path, 'imported_books.db');
     } catch (e) {
       // Fallback to temporary directory if path_provider fails
-      logger.warning(_tag, 'Error getting application documents directory, using temp: $e');
+      logger.warning(
+        _tag,
+        'Error getting application documents directory, using temp: $e',
+      );
       final tempDir = Directory.systemTemp;
       final dbDir = Directory(path.join(tempDir.path, 'Everbound'));
       if (!await dbDir.exists()) {
@@ -264,7 +315,9 @@ class LocalDatabaseService {
   /// Open the database connection
   Database _openDatabase() {
     if (_databasePath == null) {
-      throw Exception('Database path not initialized. Call initialize() first.');
+      throw Exception(
+        'Database path not initialized. Call initialize() first.',
+      );
     }
     return sqlite3.open(_databasePath!);
   }
@@ -310,14 +363,25 @@ class LocalDatabaseService {
           'rating',
           'ratings_count',
           'sync_enabled',
+          'file_source_id',
         ];
 
         for (final columnName in columnsToAdd) {
           if (!columnNames.contains(columnName)) {
-            logger.debug(_tag, 'Adding $columnName column to imported_books table');
-            // sync_enabled and last_read_at are INTEGER, all others are TEXT
-            final columnType = (columnName == 'sync_enabled' || columnName == 'last_read_at') ? 'INTEGER' : 'TEXT';
-            db.execute('ALTER TABLE imported_books ADD COLUMN $columnName $columnType');
+            logger.debug(
+              _tag,
+              'Adding $columnName column to imported_books table',
+            );
+            // sync_enabled, last_read_at, and file_source_id are INTEGER, all others are TEXT
+            final columnType =
+                (columnName == 'sync_enabled' ||
+                    columnName == 'last_read_at' ||
+                    columnName == 'file_source_id')
+                ? 'INTEGER'
+                : 'TEXT';
+            db.execute(
+              'ALTER TABLE imported_books ADD COLUMN $columnName $columnType',
+            );
           }
         }
       } finally {
@@ -332,6 +396,11 @@ class LocalDatabaseService {
       CREATE INDEX IF NOT EXISTS idx_imported_at ON imported_books(imported_at DESC)
     ''');
 
+    // Create index for file_source_id for faster source-based queries
+    db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_file_source_id ON imported_books(file_source_id)
+    ''');
+
     // Create file_sources table
     db.execute('''
       CREATE TABLE IF NOT EXISTS file_sources (
@@ -339,6 +408,7 @@ class LocalDatabaseService {
         name TEXT NOT NULL,
         type TEXT NOT NULL,
         local_path TEXT,
+        bookmark_data TEXT,
         url TEXT,
         username TEXT,
         password TEXT,
@@ -347,6 +417,13 @@ class LocalDatabaseService {
         last_scanned_at INTEGER
       )
     ''');
+
+    // Add bookmark_data column if it doesn't exist (migration for existing databases)
+    try {
+      db.execute('ALTER TABLE file_sources ADD COLUMN bookmark_data TEXT');
+    } catch (e) {
+      // Column already exists, ignore
+    }
 
     // Create index for file_sources
     db.execute('''
@@ -392,11 +469,18 @@ class LocalDatabaseService {
 
         for (final columnName in columnsToAdd) {
           if (!columnNames.contains(columnName)) {
-            logger.debug(_tag, 'Adding $columnName column to sync_servers table');
+            logger.debug(
+              _tag,
+              'Adding $columnName column to sync_servers table',
+            );
             if (columnName == 'is_active') {
-              db.execute('ALTER TABLE sync_servers ADD COLUMN $columnName INTEGER DEFAULT 0');
+              db.execute(
+                'ALTER TABLE sync_servers ADD COLUMN $columnName INTEGER DEFAULT 0',
+              );
             } else {
-              db.execute('ALTER TABLE sync_servers ADD COLUMN $columnName TEXT');
+              db.execute(
+                'ALTER TABLE sync_servers ADD COLUMN $columnName TEXT',
+              );
             }
           }
         }
@@ -430,7 +514,9 @@ class LocalDatabaseService {
 
   /// Get all imported books
   List<LocalBook> getAllBooks() {
-    final stmt = database.prepare('SELECT * FROM imported_books ORDER BY imported_at DESC');
+    final stmt = database.prepare(
+      'SELECT * FROM imported_books ORDER BY imported_at DESC',
+    );
     try {
       final result = stmt.select();
       final columnNames = result.columnNames;
@@ -442,7 +528,9 @@ class LocalDatabaseService {
 
   /// Get a book by ID
   LocalBook? getBookById(int id) {
-    final stmt = database.prepare('SELECT * FROM imported_books WHERE id = ? LIMIT 1');
+    final stmt = database.prepare(
+      'SELECT * FROM imported_books WHERE id = ? LIMIT 1',
+    );
     try {
       // For SELECT queries, pass parameters directly to select()
       final result = stmt.select([id]);
@@ -456,7 +544,9 @@ class LocalDatabaseService {
 
   /// Find book by partial MD5 checksum
   LocalBook? getBookByPartialMd5(String partialMd5Checksum) {
-    final stmt = database.prepare('SELECT * FROM imported_books WHERE partial_md5_checksum = ? LIMIT 1');
+    final stmt = database.prepare(
+      'SELECT * FROM imported_books WHERE partial_md5_checksum = ? LIMIT 1',
+    );
     try {
       final result = stmt.select([partialMd5Checksum]);
       if (result.isEmpty) return null;
@@ -469,7 +559,9 @@ class LocalDatabaseService {
 
   /// Get a book by file path (relative path)
   LocalBook? getBookByFilePath(String filePath) {
-    final stmt = database.prepare('SELECT * FROM imported_books WHERE file_path = ? LIMIT 1');
+    final stmt = database.prepare(
+      'SELECT * FROM imported_books WHERE file_path = ? LIMIT 1',
+    );
     try {
       final result = stmt.select([filePath]);
       if (result.isEmpty) return null;
@@ -480,13 +572,101 @@ class LocalDatabaseService {
     }
   }
 
+  /// Count books imported from a specific file source
+  /// Uses exact tracking via file_source_id column
+  int getBookCountForSource(FileSource source) {
+    if (source.id == null) return 0;
+
+    try {
+      // Ensure database is initialized - try to initialize if not already
+      if (!_initialized) {
+        // Database might not be initialized yet, try to initialize synchronously
+        // This is a fallback - ideally the database should be initialized before calling this
+        try {
+          // We can't await here since this is a sync method, so just check if we can access
+          if (_database == null && _databasePath == null) {
+            logger.warning(
+              _tag,
+              'Database not initialized when counting books for source ${source.id}',
+            );
+            return 0;
+          }
+          // If database path exists, try to open it
+          if (_database == null && _databasePath != null) {
+            _database = _openDatabase();
+            _initialized = true;
+          }
+        } catch (e) {
+          logger.warning(
+            _tag,
+            'Could not initialize database for book count: $e',
+          );
+          return 0;
+        }
+      }
+
+      final stmt = database.prepare(
+        'SELECT COUNT(*) as count FROM imported_books WHERE file_source_id = ?',
+      );
+      try {
+        final result = stmt.select([source.id]);
+        if (result.isEmpty) {
+          logger.debug(
+            _tag,
+            'No result from count query for source ${source.id}',
+          );
+          return 0;
+        }
+        final count = result.first['count'] as int? ?? 0;
+
+        // Debug: Also check total books and books with null file_source_id
+        if (count == 0) {
+          final debugStmt = database.prepare(
+            'SELECT COUNT(*) as total FROM imported_books',
+          );
+          try {
+            final totalResult = debugStmt.select();
+            final totalBooks = totalResult.isEmpty
+                ? 0
+                : (totalResult.first['total'] as int? ?? 0);
+            logger.debug(
+              _tag,
+              'Source ${source.id} has 0 books. Total books in DB: $totalBooks',
+            );
+          } catch (e) {
+            // Ignore debug query errors
+          } finally {
+            debugStmt.dispose();
+          }
+        }
+
+        logger.debug(
+          _tag,
+          'Found $count books for source ${source.id} (name: ${source.name})',
+        );
+        return count;
+      } finally {
+        stmt.dispose();
+      }
+    } catch (e, stackTrace) {
+      logger.error(
+        _tag,
+        'Error counting books for source ${source.id}',
+        e,
+        stackTrace,
+      );
+    }
+
+    return 0;
+  }
+
   /// Insert a new book
   int insertBook(LocalBook book) {
     final stmt = database.prepare('''
       INSERT INTO imported_books 
       (title, author, file_path, original_file_name, cover_image_path, imported_at, progress_percentage, last_read_status, last_read_cfi, last_read_xpath, last_read_at,
-       partial_md5_checksum, publisher, published_date, genre, isbn, page_count, language, description, rating, ratings_count, sync_enabled)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       partial_md5_checksum, publisher, published_date, genre, isbn, page_count, language, description, rating, ratings_count, sync_enabled, file_source_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''');
     try {
       stmt.execute([
@@ -512,6 +692,7 @@ class LocalDatabaseService {
         book.rating,
         book.ratingsCount,
         book.syncEnabled != null ? (book.syncEnabled! ? 1 : 0) : null,
+        book.fileSourceId,
       ]);
       return database.lastInsertRowId;
     } finally {
@@ -575,9 +756,15 @@ class LocalDatabaseService {
   }) {
     try {
       // Escape the lastReadStatus, lastReadCfi, and lastReadXPath strings for SQL if they're not null
-      final statusValue = lastReadStatus != null ? "'${lastReadStatus.replaceAll("'", "''")}'" : 'NULL';
-      final cfiValue = lastReadCfi != null ? "'${lastReadCfi.replaceAll("'", "''")}'" : 'NULL';
-      final xpathValue = lastReadXPath != null ? "'${lastReadXPath.replaceAll("'", "''")}'" : 'NULL';
+      final statusValue = lastReadStatus != null
+          ? "'${lastReadStatus.replaceAll("'", "''")}'"
+          : 'NULL';
+      final cfiValue = lastReadCfi != null
+          ? "'${lastReadCfi.replaceAll("'", "''")}'"
+          : 'NULL';
+      final xpathValue = lastReadXPath != null
+          ? "'${lastReadXPath.replaceAll("'", "''")}'"
+          : 'NULL';
 
       // Use raw SQL execution to avoid parameter binding issues
       // Set last_read_at to current timestamp when progress is updated
@@ -600,11 +787,15 @@ class LocalDatabaseService {
       if (updatedBook != null) {
         // Check if progress matches (with small tolerance for floating point)
         final currentProgress = updatedBook.progressPercentage ?? 0.0;
-        final progressMatches = (currentProgress - progressPercentage).abs() < 0.001;
+        final progressMatches =
+            (currentProgress - progressPercentage).abs() < 0.001;
         if (progressMatches) {
           return 1; // Success
         } else {
-          logger.warning(_tag, 'Progress mismatch. Expected: $progressPercentage, Got: $currentProgress');
+          logger.warning(
+            _tag,
+            'Progress mismatch. Expected: $progressPercentage, Got: $currentProgress',
+          );
         }
       } else {
         logger.warning(_tag, 'Book with id $bookId not found after update');
@@ -620,7 +811,8 @@ class LocalDatabaseService {
   int updateLastReadAt(int bookId) {
     try {
       final now = DateTime.now().millisecondsSinceEpoch;
-      final sql = '''
+      final sql =
+          '''
         UPDATE imported_books SET
           last_read_at = $now
         WHERE id = $bookId
@@ -646,7 +838,9 @@ class LocalDatabaseService {
 
   /// Update sync enabled state for a book
   int updateBookSyncEnabled(int bookId, bool enabled) {
-    final stmt = database.prepare('UPDATE imported_books SET sync_enabled = ? WHERE id = ?');
+    final stmt = database.prepare(
+      'UPDATE imported_books SET sync_enabled = ? WHERE id = ?',
+    );
     try {
       stmt.execute([enabled ? 1 : 0, bookId]);
       return 1; // Return 1 to indicate success
@@ -657,7 +851,9 @@ class LocalDatabaseService {
 
   /// Update device name for active sync server
   int updateActiveSyncServerDeviceName(String deviceName) {
-    final stmt = database.prepare('UPDATE sync_servers SET device_name = ? WHERE is_active = 1');
+    final stmt = database.prepare(
+      'UPDATE sync_servers SET device_name = ? WHERE is_active = 1',
+    );
     try {
       stmt.execute([deviceName]);
       return 1; // Return 1 to indicate success
@@ -668,7 +864,9 @@ class LocalDatabaseService {
 
   /// Delete a book by file path
   int deleteBookByFilePath(String filePath) {
-    final stmt = database.prepare('DELETE FROM imported_books WHERE file_path = ?');
+    final stmt = database.prepare(
+      'DELETE FROM imported_books WHERE file_path = ?',
+    );
     try {
       stmt.execute([filePath]);
       return 1; // Return 1 to indicate success
@@ -692,7 +890,9 @@ class LocalDatabaseService {
 
   /// Get all file sources
   List<FileSource> getAllFileSources() {
-    final stmt = database.prepare('SELECT * FROM file_sources ORDER BY created_at DESC');
+    final stmt = database.prepare(
+      'SELECT * FROM file_sources ORDER BY created_at DESC',
+    );
     try {
       final result = stmt.select();
       final columnNames = result.columnNames;
@@ -704,7 +904,9 @@ class LocalDatabaseService {
 
   /// Get a file source by ID
   FileSource? getFileSourceById(int id) {
-    final stmt = database.prepare('SELECT * FROM file_sources WHERE id = ? LIMIT 1');
+    final stmt = database.prepare(
+      'SELECT * FROM file_sources WHERE id = ? LIMIT 1',
+    );
     try {
       final result = stmt.select([id]);
       if (result.isEmpty) return null;
@@ -719,14 +921,15 @@ class LocalDatabaseService {
   int insertFileSource(FileSource source) {
     final stmt = database.prepare('''
       INSERT INTO file_sources 
-      (name, type, local_path, url, username, password, selected_path, created_at, last_scanned_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (name, type, local_path, bookmark_data, url, username, password, selected_path, created_at, last_scanned_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''');
     try {
       stmt.execute([
         source.name,
         source.type.name,
         source.localPath,
+        source.bookmarkData,
         source.url,
         source.username,
         source.password,
@@ -747,7 +950,7 @@ class LocalDatabaseService {
     }
     final stmt = database.prepare('''
       UPDATE file_sources SET
-        name = ?, type = ?, local_path = ?, url = ?, username = ?, password = ?,
+        name = ?, type = ?, local_path = ?, bookmark_data = ?, url = ?, username = ?, password = ?,
         selected_path = ?, created_at = ?, last_scanned_at = ?
       WHERE id = ?
     ''');
@@ -756,6 +959,7 @@ class LocalDatabaseService {
         source.name,
         source.type.name,
         source.localPath,
+        source.bookmarkData,
         source.url,
         source.username,
         source.password,
@@ -772,7 +976,9 @@ class LocalDatabaseService {
 
   /// Update last scanned timestamp for a file source
   int updateFileSourceLastScanned(int id, DateTime lastScannedAt) {
-    final stmt = database.prepare('UPDATE file_sources SET last_scanned_at = ? WHERE id = ?');
+    final stmt = database.prepare(
+      'UPDATE file_sources SET last_scanned_at = ? WHERE id = ?',
+    );
     try {
       stmt.execute([lastScannedAt.millisecondsSinceEpoch, id]);
       return 1; // Return 1 to indicate success
@@ -796,7 +1002,9 @@ class LocalDatabaseService {
 
   /// Get all sync servers
   List<SyncServer> getAllSyncServers() {
-    final stmt = database.prepare('SELECT * FROM sync_servers ORDER BY created_at DESC');
+    final stmt = database.prepare(
+      'SELECT * FROM sync_servers ORDER BY created_at DESC',
+    );
     try {
       final result = stmt.select();
       final columnNames = result.columnNames;
@@ -808,7 +1016,9 @@ class LocalDatabaseService {
 
   /// Get the active sync server
   SyncServer? getActiveSyncServer() {
-    final stmt = database.prepare('SELECT * FROM sync_servers WHERE is_active = 1 LIMIT 1');
+    final stmt = database.prepare(
+      'SELECT * FROM sync_servers WHERE is_active = 1 LIMIT 1',
+    );
     try {
       final result = stmt.select();
       if (result.isEmpty) return null;
@@ -821,7 +1031,9 @@ class LocalDatabaseService {
 
   /// Get a sync server by ID
   SyncServer? getSyncServerById(int id) {
-    final stmt = database.prepare('SELECT * FROM sync_servers WHERE id = ? LIMIT 1');
+    final stmt = database.prepare(
+      'SELECT * FROM sync_servers WHERE id = ? LIMIT 1',
+    );
     try {
       final result = stmt.select([id]);
       if (result.isEmpty) return null;
@@ -893,7 +1105,9 @@ class LocalDatabaseService {
       db.execute('UPDATE sync_servers SET is_active = 0');
 
       // Then activate the specified server
-      final stmt = db.prepare('UPDATE sync_servers SET is_active = 1 WHERE id = ?');
+      final stmt = db.prepare(
+        'UPDATE sync_servers SET is_active = 1 WHERE id = ?',
+      );
       try {
         stmt.execute([id]);
         return 1;
@@ -921,7 +1135,9 @@ class LocalDatabaseService {
 
   /// Get a setting value by key
   String? getSetting(String key) {
-    final stmt = database.prepare('SELECT value FROM app_settings WHERE key = ?');
+    final stmt = database.prepare(
+      'SELECT value FROM app_settings WHERE key = ?',
+    );
     try {
       final result = stmt.select([key]);
       if (result.isEmpty) return null;
@@ -933,7 +1149,9 @@ class LocalDatabaseService {
 
   /// Set a setting value by key
   int setSetting(String key, String value) {
-    final stmt = database.prepare('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)');
+    final stmt = database.prepare(
+      'INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)',
+    );
     try {
       stmt.execute([key, value]);
       return 1; // Return 1 to indicate success

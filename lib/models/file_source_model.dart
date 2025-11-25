@@ -21,6 +21,7 @@ class FileSource {
   final String name;
   final FileSourceType type;
   final String? localPath; // For local sources
+  final String? bookmarkData; // Security-scoped bookmark data (iOS only, base64 encoded)
   final String? url; // For WebDAV sources
   final String? username; // For WebDAV sources
   final String? password; // For WebDAV sources (stored in plain text for now, can be encrypted later)
@@ -33,6 +34,7 @@ class FileSource {
     required this.name,
     required this.type,
     this.localPath,
+    this.bookmarkData,
     this.url,
     this.username,
     this.password,
@@ -47,6 +49,7 @@ class FileSource {
       'name': name,
       'type': type.name,
       'local_path': localPath,
+      'bookmark_data': bookmarkData,
       'url': url,
       'username': username,
       'password': password,
@@ -65,6 +68,7 @@ class FileSource {
         orElse: () => FileSourceType.local,
       ),
       localPath: map['local_path'] as String?,
+      bookmarkData: map['bookmark_data'] as String?,
       url: map['url'] as String?,
       username: map['username'] as String?,
       password: map['password'] as String?,
@@ -86,6 +90,7 @@ class FileSource {
         orElse: () => FileSourceType.local,
       ),
       localPath: row[getIndex('local_path')] as String?,
+      bookmarkData: row[getIndex('bookmark_data')] as String?,
       url: row[getIndex('url')] as String?,
       username: row[getIndex('username')] as String?,
       password: row[getIndex('password')] as String?,
@@ -103,6 +108,7 @@ class FileSource {
     String? name,
     FileSourceType? type,
     String? localPath,
+    String? bookmarkData,
     String? url,
     String? username,
     String? password,
@@ -115,6 +121,7 @@ class FileSource {
       name: name ?? this.name,
       type: type ?? this.type,
       localPath: localPath ?? this.localPath,
+      bookmarkData: bookmarkData ?? this.bookmarkData,
       url: url ?? this.url,
       username: username ?? this.username,
       password: password ?? this.password,
