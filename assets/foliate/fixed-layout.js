@@ -32,7 +32,7 @@ const getViewport = (doc, viewport) => {
 export class FixedLayout extends HTMLElement {
     static observedAttributes = ['zoom']
     #root = this.attachShadow({ mode: 'closed' })
-    #observer = new ResizeObserver(() => this.#render())
+    #observer = new ResizeObserver(() => requestAnimationFrame(() => this.#render()))
     #spreads
     #index = -1
     defaultViewport
@@ -250,8 +250,10 @@ export class FixedLayout extends HTMLElement {
         return this.book.sections.indexOf(section)
     }
     #reportLocation(reason) {
-        this.dispatchEvent(new CustomEvent('relocate', { detail:
-            { reason, range: null, index: this.index, fraction: 0, size: 1 } }))
+        this.dispatchEvent(new CustomEvent('relocate', {
+            detail:
+                { reason, range: null, index: this.index, fraction: 0, size: 1 }
+        }))
     }
     getSpreadOf(section) {
         const spreads = this.#spreads

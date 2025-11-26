@@ -67,9 +67,9 @@ const makeDirectoryLoader = async entry => {
     return { loadText, loadBlob, getSize }
 }
 
-export class ResponseError extends Error {}
-export class NotFoundError extends Error {}
-export class UnsupportedTypeError extends Error {}
+export class ResponseError extends Error { }
+export class NotFoundError extends Error { }
+export class UnsupportedTypeError extends Error { }
 
 const fetchFile = async url => {
     const res = await fetch(url)
@@ -223,6 +223,7 @@ export class View extends HTMLElement {
     isFixedLayout = false
     lastLocation
     history = new History()
+    #observer = new ResizeObserver(() => requestAnimationFrame(() => this.expand()))
     constructor() {
         super()
         this.history.addEventListener('popstate', ({ detail }) => {
@@ -232,8 +233,8 @@ export class View extends HTMLElement {
     }
     async open(book) {
         if (typeof book === 'string'
-        || typeof book.arrayBuffer === 'function'
-        || book.isDirectory) book = await makeBook(book)
+            || typeof book.arrayBuffer === 'function'
+            || book.isDirectory) book = await makeBook(book)
         this.book = book
         this.language = languageInfo(book.metadata?.language)
 
@@ -244,10 +245,12 @@ export class View extends HTMLElement {
             const getFragment = book.getTOCFragment.bind(book)
             this.#tocProgress = new TOCProgress()
             await this.#tocProgress.init({
-                toc: book.toc ?? [], ids, splitHref, getFragment })
+                toc: book.toc ?? [], ids, splitHref, getFragment
+            })
             this.#pageProgress = new TOCProgress()
             await this.#pageProgress.init({
-                toc: book.pageList ?? [], ids, splitHref, getFragment })
+                toc: book.pageList ?? [], ids, splitHref, getFragment
+            })
         }
 
         this.isFixedLayout = this.book.rendition?.layout === 'pre-paginated'
@@ -423,7 +426,7 @@ export class View extends HTMLElement {
         const resolved = await this.goTo(value)
         if (resolved) {
             const { index, anchor } = resolved
-            const { doc } =  this.#getOverlayer(index)
+            const { doc } = this.#getOverlayer(index)
             const range = anchor(doc)
             this.#emit('show-annotation', { value, index, range })
         }
@@ -463,7 +466,7 @@ export class View extends HTMLElement {
             await this.renderer.goTo(resolved)
             this.history.pushState(target)
             return resolved
-        } catch(e) {
+        } catch (e) {
             console.error(e)
             console.error(`Could not go to ${target}`)
         }
@@ -478,7 +481,7 @@ export class View extends HTMLElement {
             const obj = await this.resolveNavigation(target)
             await this.renderer.goTo({ ...obj, select: true })
             this.history.pushState(target)
-        } catch(e) {
+        } catch (e) {
             console.error(e)
             console.error(`Could not go to ${target}`)
         }
@@ -505,7 +508,7 @@ export class View extends HTMLElement {
             const range = isRange ? frag : doc.createRange()
             if (!isRange) range.selectNodeContents(frag)
             return this.#tocProgress.getProgress(index, range)
-        } catch(e) {
+        } catch (e) {
             console.error(e)
             console.error(`Could not get ${target}`)
         }
@@ -553,7 +556,7 @@ export class View extends HTMLElement {
         this.#searchResults.set(index, list)
 
         for await (const result of iter) {
-            if (result.subitems){
+            if (result.subitems) {
                 const list = result.subitems
                     .map(({ cfi }) => ({ value: SEARCH_PREFIX + cfi }))
                 this.#searchResults.set(result.index, list)

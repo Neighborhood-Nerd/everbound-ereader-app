@@ -16,10 +16,11 @@ import 'providers/reader_providers.dart';
 import 'providers/home_providers.dart';
 import 'providers/logging_providers.dart';
 import 'services/logger_service.dart';
+import 'widgets/foliate_webview.dart';
 
 const String _tag = 'Main';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Set preferred orientations
@@ -31,8 +32,19 @@ void main() {
   // Set up error handling
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
-    logger.error(_tag, 'Flutter Error: ${details.exception}', details.exception, details.stack);
+    logger.error(
+      _tag,
+      'Flutter Error: ${details.exception}',
+      details.exception,
+      details.stack,
+    );
   };
+
+  // Start the foliate server early so it's ready when user opens a book
+  // This prevents the 10-second delay when opening books
+  FoliateWebView.initializeServerEarly().catchError((e) {
+    logger.error(_tag, 'Error initializing foliate server early: $e', e);
+  });
 
   runApp(ProviderScope(child: const MainApp()));
 }

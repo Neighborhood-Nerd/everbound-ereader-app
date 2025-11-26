@@ -210,7 +210,7 @@ const setStylesImportant = (el, styles) => {
 }
 
 class View {
-    #observer = new ResizeObserver(() => this.expand())
+    #observer = new ResizeObserver(() => requestAnimationFrame(() => this.expand()))
     #element = document.createElement('div')
     #iframe = document.createElement('iframe')
     #contentRange = document.createRange()
@@ -429,7 +429,7 @@ export class Paginator extends HTMLElement {
         'max-inline-size', 'max-block-size', 'max-column-count',
     ]
     #root = this.attachShadow({ mode: 'closed' })
-    #observer = new ResizeObserver(() => this.render())
+    #observer = new ResizeObserver(() => requestAnimationFrame(() => this.render()))
     #top
     #background
     #container

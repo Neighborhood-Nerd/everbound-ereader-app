@@ -799,29 +799,52 @@ const openBook = async (options) => {
                 container.appendChild(view);
             }
 
+            // Check if view is already opening a book
+            if (view.__isOpening) {
+                logToFlutter('Warning: view.open already in progress, ignoring');
+                return;
+            }
+            view.__isOpening = true;
+
             // Wait for the browser to process the DOM update
             // Use multiple requestAnimationFrame calls to ensure the browser has
             // fully processed the element and is ready to render
             const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-            await new Promise(resolve => {
-                requestAnimationFrame(() => {
+
+            // On iOS, give the browser a brief moment to process the element
+            // The shadow root will be created in the constructor, but on iOS the custom element
+            // might not be fully upgraded until it's actually used. We'll proceed with view.open()
+            // which will trigger the upgrade if needed.
+            if (isIOS) {
+                // Just wait a short time for the browser to process the DOM update
+                // Don't wait for shadow root - it will be created when the element is upgraded
+                await new Promise(resolve => {
                     requestAnimationFrame(() => {
-                        // On iOS, add a longer delay to ensure WebView is fully ready
-                        // This helps prevent blank screen on first load
-                        if (isIOS) {
-                            // Give iOS WebView more time to process the custom element
-                            // and set up its shadow DOM properly
-                            setTimeout(() => {
-                                resolve();
-                            }, 150); // Longer delay for iOS WebView
-                        } else {
-                            resolve();
-                        }
+                        requestAnimationFrame(() => {
+                            // Brief additional delay for iOS WebView to process custom element
+                            setTimeout(resolve, 50); // Reduced from 150ms to 50ms
+                        });
                     });
                 });
-            });
+            } else {
+                // For non-iOS, use the standard double RAF approach
+                await new Promise(resolve => {
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                            resolve();
+                        });
+                    });
+                });
+            }
 
             await view.open(blob);
+            view.__isOpening = false;
+
+            // Re-apply theme to ensure renderer gets it (setStyles was not available before open)
+            if (theme) {
+                logToFlutter(`Re-applying theme after view.open() to ensure renderer styles`);
+                setTheme(theme);
+            }
 
             // Use view.init() to navigate to saved location if provided
             if (initialLocation) {
@@ -922,19 +945,54 @@ const openBook = async (options) => {
             // On iOS, ensure the renderer is ready and force a reflow to trigger rendering
             // This helps prevent blank screen on first load
             const isIOSCheck = /iPad|iPhone|iPod/.test(navigator.userAgent);
-            if (isIOSCheck && view.renderer) {
+            if (isIOSCheck) {
                 try {
-                    // Force a reflow by accessing layout properties
-                    void view.offsetHeight;
-                    void view.renderer.offsetHeight;
-                    // Trigger a repaint
-                    requestAnimationFrame(() => {
+                    // Wait for renderer to be available (it's created during view.open())
+                    let rendererReady = false;
+                    let rendererAttempts = 0;
+                    const maxRendererAttempts = 20; // 1 second max wait
+
+                    while (!rendererReady && rendererAttempts < maxRendererAttempts) {
+                        if (view.renderer) {
+                            rendererReady = true;
+                            logToFlutter(`Renderer ready after ${rendererAttempts + 1} attempts`);
+                        } else {
+                            await new Promise(resolve => setTimeout(resolve, 50));
+                            rendererAttempts++;
+                        }
+                    }
+
+                    if (view.renderer) {
+                        // Force a reflow by accessing layout properties
+                        void view.offsetHeight;
+                        void view.renderer.offsetHeight;
+
+                        // Also force reflow on shadow root if it exists
+                        if (view.shadowRoot) {
+                            const viewer = view.shadowRoot.querySelector('.viewer');
+                            if (viewer) {
+                                void viewer.offsetHeight;
+                            }
+                        }
+
+                        // Trigger multiple repaints to ensure rendering
                         requestAnimationFrame(() => {
-                            // Reflow forced
+                            requestAnimationFrame(() => {
+                                requestAnimationFrame(() => {
+                                    // Force another reflow after animations
+                                    void view.offsetHeight;
+                                    if (view.renderer) {
+                                        void view.renderer.offsetHeight;
+                                    }
+                                    logToFlutter('iOS: Reflow forced after book open');
+                                });
+                            });
                         });
-                    });
+                    } else {
+                        logToFlutter('WARNING: Renderer not available after waiting, content may not render');
+                    }
                 } catch (e) {
-                    // Ignore reflow errors
+                    logToFlutter(`Error forcing iOS reflow: ${e.message}`);
                 }
             }
 
@@ -1055,6 +1113,7 @@ const openBook = async (options) => {
             }
         }
     } catch (e) {
+        if (view) view.__isOpening = false;
         logToFlutter(`openBook outer error: ${e.message}`);
         logToFlutter(`openBook outer stack: ${e.stack}`);
         console.error('[foliate-bridge] openBook outer error:', e);
