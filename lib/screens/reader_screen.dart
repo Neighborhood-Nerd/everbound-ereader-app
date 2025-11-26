@@ -791,6 +791,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   @override
+  void deactivate() {
+    // Clear selection overlay when navigating away (before dispose)
+    // deactivate() is called before dispose() and ref is still available here
+    ref.read(selectionStateProvider.notifier).clearSelection();
+    super.deactivate();
+  }
+
+  @override
   void dispose() {
     _isDisposing = true;
     _navigationDebounceTimer?.cancel();
