@@ -792,6 +792,35 @@ const openBook = async (options) => {
                 logToFlutter(`openBook: theme pre-applied before book load`);
             }
 
+            // Ensure the view element is ready before opening the book
+            // On iOS WebView, the element needs to be fully processed by the browser
+            // before it can render content properly
+            if (!view.isConnected) {
+                container.appendChild(view);
+            }
+
+            // Wait for the browser to process the DOM update
+            // Use multiple requestAnimationFrame calls to ensure the browser has
+            // fully processed the element and is ready to render
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+            await new Promise(resolve => {
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        // On iOS, add a longer delay to ensure WebView is fully ready
+                        // This helps prevent blank screen on first load
+                        if (isIOS) {
+                            // Give iOS WebView more time to process the custom element
+                            // and set up its shadow DOM properly
+                            setTimeout(() => {
+                                resolve();
+                            }, 150); // Longer delay for iOS WebView
+                        } else {
+                            resolve();
+                        }
+                    });
+                });
+            });
+
             await view.open(blob);
 
             // Use view.init() to navigate to saved location if provided
@@ -889,6 +918,25 @@ const openBook = async (options) => {
             }
 
             logToFlutter('Book opened successfully');
+
+            // On iOS, ensure the renderer is ready and force a reflow to trigger rendering
+            // This helps prevent blank screen on first load
+            const isIOSCheck = /iPad|iPhone|iPod/.test(navigator.userAgent);
+            if (isIOSCheck && view.renderer) {
+                try {
+                    // Force a reflow by accessing layout properties
+                    void view.offsetHeight;
+                    void view.renderer.offsetHeight;
+                    // Trigger a repaint
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                            // Reflow forced
+                        });
+                    });
+                } catch (e) {
+                    // Ignore reflow errors
+                }
+            }
 
             // Calculate location (page numbers) for TOC items based on section sizes
             const toc = view.book?.toc || [];
@@ -1441,21 +1489,40 @@ const setAnimated = async (enabled) => {
 // EXPOSE PUBLIC API TO FLUTTER
 // ============================================================================
 
-// Expose API globally so Flutter can call it via evaluateJavascript
-// Example: controller.evaluateJavascript('window.everboundReader.openBook({...})')
-window.everboundReader = {
-    initReader,
-    openBook,
-    goToLocation,
-    nextPage,
-    prevPage,
-    addAnnotation,
-    removeAnnotation,
-    setTheme,
-    setAnimationDuration,
-    setAnimated,
-    clearSelection,
-};
+// Wrap bridge initialization in try-catch to ensure errors are logged
+try {
+    // Expose API globally so Flutter can call it via evaluateJavascript
+    // Example: controller.evaluateJavascript('window.everboundReader.openBook({...})')
+    window.everboundReader = {
+        initReader,
+        openBook,
+        goToLocation,
+        nextPage,
+        prevPage,
+        addAnnotation,
+        removeAnnotation,
+        setTheme,
+        setAnimationDuration,
+        setAnimated,
+        clearSelection,
+    };
 
-logToFlutter('✅ Flutter bridge ready! window.everboundReader is exposed');
+    logToFlutter('✅ Flutter bridge ready! window.everboundReader is exposed');
+
+    // Notify Flutter that the bridge is ready
+    try {
+        window.flutter_inappwebview?.callHandler('bridgeReady');
+    } catch (e) {
+        logToFlutter(`Error calling bridgeReady handler: ${e.message}`);
+    }
+} catch (e) {
+    console.error('[foliate-bridge] Error initializing bridge:', e);
+    logToFlutter(`❌ CRITICAL: Bridge initialization failed: ${e.message}`);
+    logToFlutter(`Stack: ${e.stack}`);
+    // Still try to set a minimal bridge object so Flutter can detect the error
+    window.everboundReader = {
+        initReader: async () => { throw new Error('Bridge not initialized'); },
+        openBook: async () => { throw new Error('Bridge not initialized'); },
+    };
+}
 
