@@ -99,6 +99,44 @@ class SettingsScreen extends ConsumerWidget {
             },
           ),
           ListTile(
+            leading: Icon(Icons.feedback, color: variant.textColor),
+            title: Text(
+              'Feedback',
+              style: TextStyle(color: variant.textColor),
+            ),
+            subtitle: Text(
+              'Suggest a feature, report a bug, or share feedback',
+              style: TextStyle(color: variant.textColor),
+            ),
+            trailing: Icon(Icons.open_in_new, color: variant.textColor),
+            onTap: () async {
+              logger.info(_tag, 'User tapped Feedback link');
+              final url = Uri.parse('https://everbound.userjot.com/');
+              if (await canLaunchUrl(url)) {
+                await launchUrl(url, mode: LaunchMode.externalApplication);
+              }
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.map, color: variant.textColor),
+            title: Text(
+              'Roadmap',
+              style: TextStyle(color: variant.textColor),
+            ),
+            subtitle: Text(
+              'View product roadmap and upcoming features',
+              style: TextStyle(color: variant.textColor),
+            ),
+            trailing: Icon(Icons.open_in_new, color: variant.textColor),
+            onTap: () async {
+              logger.info(_tag, 'User tapped Roadmap link');
+              final url = Uri.parse('https://everbound.userjot.com/roadmap');
+              if (await canLaunchUrl(url)) {
+                await launchUrl(url, mode: LaunchMode.externalApplication);
+              }
+            },
+          ),
+          ListTile(
             leading: Icon(Icons.privacy_tip, color: variant.textColor),
             title: Text(
               'Privacy Policy',
